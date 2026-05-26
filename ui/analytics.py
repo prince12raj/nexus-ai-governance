@@ -9,6 +9,19 @@ from compliance.scoring import score_color, grade_score
 from ui.dashboard import render_page_header, render_kpi_card
 
 
+def _layout(**overrides) -> dict:
+    """Merge PLOTLY_DARK with per-chart overrides — prevents duplicate key errors."""
+    from config.constants import PLOTLY_DARK
+    base = dict(PLOTLY_DARK)
+    for key in ("xaxis", "yaxis"):
+        if key in overrides and key in base:
+            merged = dict(base[key])
+            merged.update(overrides.pop(key))
+            overrides[key] = merged
+    base.update(overrides)
+    return base
+
+
 def render_analytics() -> None:
     from auth.session_manager import get_current_user
     user = get_current_user()
@@ -21,13 +34,11 @@ def render_analytics() -> None:
     reports      = st.session_state.get("audit_history", [])
     all_findings = [f for r in reports for f in getattr(r, "findings", [])]
 
-    # ── KPI row ────────────────────────────────────────────────────────────────
     total_audits   = len(reports)
     avg_score      = round(sum(getattr(r, "compliance_score", 0) for r in reports) / max(len(reports), 1), 1)
     total_findings = len(all_findings)
     critical_count = sum(1 for f in all_findings if getattr(f, "severity", "") == "Critical")
 
-    # Score trend delta
     delta = 0.0
     if len(reports) >= 2:
         delta = round(
@@ -53,15 +64,12 @@ def render_analytics() -> None:
         st.info("📊 No audit data yet. Run compliance audits to populate analytics.", icon="ℹ️")
         return
 
-    # ── Tabs ───────────────────────────────────────────────────────────────────
     tab_trend, tab_fw, tab_findings, tab_dept, tab_export = st.tabs([
         "📈 Trend", "🎯 Frameworks", "🔍 Findings", "🏢 Departments", "📥 Export"
     ])
 
-    # ── Trend tab ──────────────────────────────────────────────────────────────
     with tab_trend:
-        st.markdown('<div class="section-header">📈 Compliance Score Over Time</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="section-header">📈 Compliance Score Over Time</div>', unsafe_allow_html=True)
         _render_trend_chart(reports)
 
         if len(reports) >= 2:
@@ -69,45 +77,32 @@ def render_analytics() -> None:
             scores = [getattr(r, "compliance_score", 0) for r in reports]
             trend  = score_trend(scores)
             c1, c2, c3, c4 = st.columns(4)
-            with c1: st.metric("Trend",        f"{trend['trend_emoji']} {trend['trend'].title()}")
-            with c2: st.metric("Change",        trend["change_str"] + "%")
-            with c3: st.metric("Best Score",    f"{trend['best']}%")
-            with c4: st.metric("Worst Score",   f"{trend['worst']}%")
+            with c1: st.metric("Trend",      f"{trend['trend_emoji']} {trend['trend'].title()}")
+            with c2: st.metric("Change",      trend["change_str"] + "%")
+            with c3: st.metric("Best Score",  f"{trend['best']}%")
+            with c4: st.metric("Worst Score", f"{trend['worst']}%")
 
-    # ── Frameworks tab ─────────────────────────────────────────────────────────
     with tab_fw:
-        st.markdown('<div class="section-header">🎯 Performance by Framework</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="section-header">🎯 Performance by Framework</div>', unsafe_allow_html=True)
         _render_framework_breakdown(reports)
 
-    # ── Findings tab ──────────────────────────────────────────────────────────
     with tab_findings:
         col_sev, col_conf = st.columns(2)
         with col_sev:
-            st.markdown('<div class="section-header">🎯 Findings by Severity</div>',
-                        unsafe_allow_html=True)
+            st.markdown('<div class="section-header">🎯 Findings by Severity</div>', unsafe_allow_html=True)
             _render_severity_chart(all_findings)
         with col_conf:
-            st.markdown('<div class="section-header">📊 Confidence Distribution</div>',
-                        unsafe_allow_html=True)
+            st.markdown('<div class="section-header">📊 Confidence Distribution</div>', unsafe_allow_html=True)
             _render_confidence_chart(all_findings)
-
-        # Top violations table
-        st.markdown('<div class="section-header">🔝 Most Common Violations</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="section-header">🔝 Most Common Violations</div>', unsafe_allow_html=True)
         _render_top_violations(all_findings)
 
-    # ── Departments tab ────────────────────────────────────────────────────────
     with tab_dept:
-        st.markdown('<div class="section-header">🏢 Risk by Department</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="section-header">🏢 Risk by Department</div>', unsafe_allow_html=True)
         _render_department_chart(all_findings)
-
-        st.markdown('<div class="section-header">🕸️ Framework Coverage Radar</div>',
-                    unsafe_allow_html=True)
+        st.markdown('<div class="section-header">🕸️ Framework Coverage Radar</div>', unsafe_allow_html=True)
         _render_radar(reports)
 
-    # ── Export tab ─────────────────────────────────────────────────────────────
     with tab_export:
         _render_export_panel(reports, all_findings)
 
@@ -119,7 +114,6 @@ def render_analytics() -> None:
 def _render_trend_chart(reports: list) -> None:
     try:
         import plotly.graph_objects as go
-        from config.constants import PLOTLY_DARK
 
         dates  = [getattr(r, "generated_timestamp", "")[:10] for r in reports]
         scores = [getattr(r, "compliance_score", 0) for r in reports]
@@ -135,16 +129,19 @@ def _render_trend_chart(reports: list) -> None:
             name="Score",
             hovertemplate="<b>%{x}</b><br>Score: %{y:.1f}%<extra></extra>",
         ))
-        # Add target line at 80%
-        fig.add_hline(y=80, line_dash="dot", line_color="rgba(0,229,160,0.4)",
-                      annotation_text="Target 80%", annotation_font_color="#00e5a0",
-                      annotation_font_size=10)
-        fig.update_layout(
-            **PLOTLY_DARK, height=280,
-            xaxis_title="", yaxis_title="Compliance Score (%)",
+        fig.add_hline(
+            y=80, line_dash="dot", line_color="rgba(0,229,160,0.4)",
+            annotation_text="Target 80%",
+            annotation_font_color="#00e5a0",
+            annotation_font_size=10,
+        )
+        fig.update_layout(**_layout(
+            height=280,
+            xaxis_title="",
+            yaxis_title="Compliance Score (%)",
             yaxis=dict(range=[0, 105]),
             showlegend=False,
-        )
+        ))
         st.plotly_chart(fig, use_container_width=True)
     except ImportError:
         st.info("Install plotly: pip install plotly")
@@ -153,7 +150,6 @@ def _render_trend_chart(reports: list) -> None:
 def _render_framework_breakdown(reports: list) -> None:
     try:
         import plotly.graph_objects as go
-        from config.constants import PLOTLY_DARK
 
         fw_scores: dict = {}
         for r in reports:
@@ -161,31 +157,33 @@ def _render_framework_breakdown(reports: list) -> None:
             score = getattr(r, "compliance_score", 0)
             fw_scores.setdefault(fw, []).append(score)
 
-        fws  = list(fw_scores.keys())
-        avgs = [round(sum(v) / len(v), 1) for v in fw_scores.values()]
+        fws    = list(fw_scores.keys())
+        avgs   = [round(sum(v) / len(v), 1) for v in fw_scores.values()]
         colors = [score_color(a) for a in avgs]
 
         fig = go.Figure(go.Bar(
             x=fws, y=avgs,
-            marker=dict(color=colors, opacity=0.85,
-                        line=dict(color="#0a0e1a", width=1)),
+            marker=dict(color=colors, opacity=0.85, line=dict(color="#0a0e1a", width=1)),
             text=[f"{a}%" for a in avgs],
             textposition="outside",
             textfont=dict(color="#e8edf8", size=11),
             hovertemplate="<b>%{x}</b><br>Avg Score: %{y:.1f}%<extra></extra>",
         ))
-        fig.add_hline(y=80, line_dash="dot", line_color="rgba(0,229,160,0.4)",
-                      annotation_text="Target", annotation_font_color="#00e5a0",
-                      annotation_font_size=10)
-        fig.update_layout(
-            **PLOTLY_DARK, height=300,
-            xaxis_title="Framework", yaxis_title="Average Score (%)",
+        fig.add_hline(
+            y=80, line_dash="dot", line_color="rgba(0,229,160,0.4)",
+            annotation_text="Target",
+            annotation_font_color="#00e5a0",
+            annotation_font_size=10,
+        )
+        fig.update_layout(**_layout(
+            height=300,
+            xaxis_title="Framework",
+            yaxis_title="Average Score (%)",
             yaxis=dict(range=[0, 110]),
             showlegend=False,
-        )
+        ))
         st.plotly_chart(fig, use_container_width=True)
 
-        # Per-framework breakdown table
         import pandas as pd
         rows = []
         for fw, scores_list in fw_scores.items():
@@ -208,7 +206,7 @@ def _render_framework_breakdown(reports: list) -> None:
 def _render_severity_chart(findings: list) -> None:
     try:
         import plotly.graph_objects as go
-        from config.constants import PLOTLY_DARK, SEVERITY_COLORS
+        from config.constants import SEVERITY_COLORS
         from collections import Counter
 
         counts = Counter(getattr(f, "severity", "Medium") for f in findings)
@@ -222,11 +220,12 @@ def _render_severity_chart(findings: list) -> None:
             text=values, textposition="outside",
             hovertemplate="<b>%{x}</b><br>Count: %{y}<extra></extra>",
         ))
-        fig.update_layout(
-            **PLOTLY_DARK, height=260,
-            xaxis_title="Severity", yaxis_title="Count",
+        fig.update_layout(**_layout(
+            height=260,
+            xaxis_title="Severity",
+            yaxis_title="Count",
             showlegend=False,
-        )
+        ))
         st.plotly_chart(fig, use_container_width=True)
     except ImportError:
         pass
@@ -235,7 +234,6 @@ def _render_severity_chart(findings: list) -> None:
 def _render_confidence_chart(findings: list) -> None:
     try:
         import plotly.graph_objects as go
-        from config.constants import PLOTLY_DARK
 
         scores = [getattr(f, "confidence_score", 0.0) for f in findings if hasattr(f, "confidence_score")]
         if not scores:
@@ -244,15 +242,15 @@ def _render_confidence_chart(findings: list) -> None:
 
         fig = go.Figure(go.Histogram(
             x=scores, nbinsx=10,
-            marker=dict(color="#3b7ff5", opacity=0.8,
-                        line=dict(color="#0a0e1a", width=1)),
+            marker=dict(color="#3b7ff5", opacity=0.8, line=dict(color="#0a0e1a", width=1)),
             hovertemplate="Range: %{x}<br>Count: %{y}<extra></extra>",
         ))
-        fig.update_layout(
-            **PLOTLY_DARK, height=260,
-            xaxis_title="Confidence Score", yaxis_title="Count",
+        fig.update_layout(**_layout(
+            height=260,
+            xaxis_title="Confidence Score",
+            yaxis_title="Count",
             showlegend=False,
-        )
+        ))
         st.plotly_chart(fig, use_container_width=True)
     except ImportError:
         pass
@@ -263,20 +261,25 @@ def _render_top_violations(findings: list) -> None:
         import pandas as pd
         from collections import Counter
 
-        refs    = [getattr(f, "legal_reference", "Unknown") for f in findings]
-        counts  = Counter(refs).most_common(10)
+        refs   = [getattr(f, "legal_reference", "Unknown") for f in findings]
+        counts = Counter(refs).most_common(10)
 
         if not counts:
             st.info("No violation data yet.")
             return
 
-        rows = [{"Regulation": ref, "Count": cnt,
-                 "Severity": next((getattr(f, "severity", "") for f in findings
-                                   if getattr(f, "legal_reference", "") == ref), "")}
-                for ref, cnt in counts]
-
-        df = pd.DataFrame(rows)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        rows = [
+            {
+                "Regulation": ref,
+                "Count":      cnt,
+                "Severity":   next(
+                    (getattr(f, "severity", "") for f in findings
+                     if getattr(f, "legal_reference", "") == ref), ""
+                ),
+            }
+            for ref, cnt in counts
+        ]
+        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
     except ImportError:
         pass
 
@@ -284,7 +287,6 @@ def _render_top_violations(findings: list) -> None:
 def _render_department_chart(findings: list) -> None:
     try:
         import plotly.graph_objects as go
-        from config.constants import PLOTLY_DARK
         from collections import Counter
 
         depts  = Counter(getattr(f, "department", "General") for f in findings)
@@ -296,12 +298,13 @@ def _render_department_chart(findings: list) -> None:
             marker=dict(color="#3b7ff5", opacity=0.85),
             text=values, textposition="outside",
         ))
-        fig.update_layout(
-            **PLOTLY_DARK, height=max(250, len(labels) * 30 + 60),
-            xaxis_title="Finding Count", yaxis_title="",
+        fig.update_layout(**_layout(
+            height=max(250, len(labels) * 30 + 60),
+            xaxis_title="Finding Count",
+            yaxis_title="",
             showlegend=False,
             margin=dict(l=10, r=40, t=10, b=10),
-        )
+        ))
         st.plotly_chart(fig, use_container_width=True)
     except ImportError:
         pass
@@ -310,9 +313,8 @@ def _render_department_chart(findings: list) -> None:
 def _render_radar(reports: list) -> None:
     try:
         import plotly.graph_objects as go
-        from config.constants import PLOTLY_DARK
 
-        labels = ["GDPR", "ISO 27001", "HIPAA", "SOC 2", "PCI-DSS"]
+        labels    = ["GDPR", "ISO 27001", "HIPAA", "SOC 2", "PCI-DSS"]
         fw_scores: dict = {fw: [] for fw in labels}
 
         for r in reports:
@@ -333,27 +335,33 @@ def _render_radar(reports: list) -> None:
             line=dict(color="#3b7ff5", width=2),
             marker=dict(color="#3b7ff5", size=6),
         ))
-        fig.update_layout(
-            **PLOTLY_DARK, height=300,
+        fig.update_layout(**_layout(
+            height=300,
             polar=dict(
                 bgcolor="rgba(0,0,0,0)",
-                radialaxis=dict(range=[0, 100], visible=True,
-                                gridcolor="rgba(59,127,245,0.15)",
-                                tickfont=dict(size=9, color="#4a5a78")),
-                angularaxis=dict(gridcolor="rgba(59,127,245,0.12)",
-                                 tickfont=dict(size=11, color="#8a9bbc")),
+                radialaxis=dict(
+                    range=[0, 100], visible=True,
+                    gridcolor="rgba(59,127,245,0.15)",
+                    tickfont=dict(size=9, color="#4a5a78"),
+                ),
+                angularaxis=dict(
+                    gridcolor="rgba(59,127,245,0.12)",
+                    tickfont=dict(size=11, color="#8a9bbc"),
+                ),
             ),
             margin=dict(l=40, r=40, t=20, b=20),
-        )
+        ))
         st.plotly_chart(fig, use_container_width=True)
     except ImportError:
         pass
 
 
+# ══════════════════════════════════════════════════════════════════════════════
+# EXPORT PANEL
+# ══════════════════════════════════════════════════════════════════════════════
+
 def _render_export_panel(reports: list, findings: list) -> None:
-    """Export options for analytics data."""
-    st.markdown('<div class="section-header">📥 Export Analytics Data</div>',
-                unsafe_allow_html=True)
+    st.markdown('<div class="section-header">📥 Export Analytics Data</div>', unsafe_allow_html=True)
 
     col1, col2, col3 = st.columns(3)
 
@@ -383,11 +391,11 @@ def _render_export_panel(reports: list, findings: list) -> None:
                 rows = []
                 for f in findings:
                     rows.append({
-                        "legal_reference":   getattr(f, "legal_reference", ""),
-                        "severity":          getattr(f, "severity", ""),
-                        "department":        getattr(f, "department", ""),
-                        "confidence_score":  getattr(f, "confidence_score", ""),
-                        "explanation":       getattr(f, "explanation", "")[:100],
+                        "legal_reference":  getattr(f, "legal_reference", ""),
+                        "severity":         getattr(f, "severity", ""),
+                        "department":       getattr(f, "department", ""),
+                        "confidence_score": getattr(f, "confidence_score", ""),
+                        "explanation":      getattr(f, "explanation", "")[:100],
                     })
                 if rows:
                     csv = pd.DataFrame(rows).to_csv(index=False)
@@ -405,7 +413,7 @@ def _render_export_panel(reports: list, findings: list) -> None:
     with col3:
         st.markdown("**📊 Summary Report (Markdown)**")
         if st.button("Export Summary", use_container_width=True):
-            md  = _build_summary_markdown(reports, findings)
+            md = _build_summary_markdown(reports, findings)
             st.download_button(
                 "💾 Download summary.md",
                 data=md,
@@ -415,11 +423,10 @@ def _render_export_panel(reports: list, findings: list) -> None:
 
 
 def _build_summary_markdown(reports: list, findings: list) -> str:
-    """Build a markdown summary report."""
     from collections import Counter
     import datetime
 
-    avg_score = round(
+    avg_score  = round(
         sum(getattr(r, "compliance_score", 0) for r in reports) / max(len(reports), 1), 1
     )
     sev_counts = Counter(getattr(f, "severity", "") for f in findings)
