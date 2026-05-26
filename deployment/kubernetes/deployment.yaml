@@ -1,0 +1,49 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: nexus-governance
+  labels:
+    app: nexus-governance
+spec:
+  replicas: 2
+  selector:
+    matchLabels:
+      app: nexus-governance
+  template:
+    metadata:
+      labels:
+        app: nexus-governance
+    spec:
+      containers:
+      - name: nexus
+        image: nexus-ai-governance:latest
+        ports:
+        - containerPort: 8501
+        env:
+        - name: OPENAI_API_KEY
+          valueFrom:
+            secretKeyRef:
+              name: nexus-secrets
+              key: openai-api-key
+        - name: APP_ENV
+          value: "production"
+        resources:
+          requests:
+            memory: "512Mi"
+            cpu: "250m"
+          limits:
+            memory: "2Gi"
+            cpu: "1000m"
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: nexus-governance-svc
+spec:
+  selector:
+    app: nexus-governance
+  ports:
+  - protocol: TCP
+    port: 80
+    targetPort: 8501
+  type: LoadBalancer

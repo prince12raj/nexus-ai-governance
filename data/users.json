@@ -1,0 +1,37 @@
+{
+  "princeraj": {
+    "password_hash": "3cd543e82cd8af25459dc65d9fe56d857e13eab471dd54878e280e575b04f622",
+    "role": "Admin",
+    "name": "Prince Raj",
+    "email": "princerajd@gmail.com",
+    "avatar": "PR",
+    "department": "CSE",
+    "registered_at": "2026-05-26T10:22:37",
+    "last_login": "2026-05-26T10:22:47",
+    "permissions": [
+      "read",
+      "write",
+      "audit",
+      "export",
+      "admin"
+    ]
+  },
+  "prince12raj": {
+    "password_hash": "3cd543e82cd8af25459dc65d9fe56d857e13eab471dd54878e280e575b04f622",
+    "role": "Developer",
+    "name": "Prince Raj",
+    "email": "princerajd7@gmail.com",
+    "avatar": "PR",
+    "department": "CSE",
+    "registered_at": "2026-05-26T10:24:19",
+    "last_login": "2026-05-26T10:24:25",
+    "permissions": [
+      "read",
+      "write",
+      "audit",
+      "export",
+      "admin",
+      "developer"
+    ]
+  }
+}

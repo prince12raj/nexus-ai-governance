@@ -1,0 +1,34 @@
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.egg-info/
+dist/
+build/
+.venv/
+venv/
+env/
+
+# Environment
+.env
+.env.production
+
+# Data & cache
+data/uploaded_docs/*
+data/processed/*
+data/vector_cache/*
+!data/**/.gitkeep
+
+# Logs
+logs/*.log
+!logs/.gitkeep
+
+# Streamlit
+.streamlit/
+
+# macOS
+.DS_Store
+
+# IDE
+.vscode/
+.idea/
