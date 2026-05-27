@@ -135,17 +135,33 @@ def _boot_vector_store() -> None:
 
 def _show_config_warnings() -> None:
     """
-    Display configuration warnings on first load.
-    Only shown once per session to avoid nagging the user.
+    Display configuration warnings only once per session
+    and only to Admin / Developer users — never on the login page.
     """
+    # Already shown this session — skip
     if st.session_state.get("_config_warnings_shown"):
         return
 
-    warnings = validate_config()
-    for w in warnings:
-        st.warning(w, icon="⚠️")
+    # Don't show on login/register page
+    if not st.session_state.get("authenticated"):
+        return
 
-    st.session_state["_config_warnings_shown"] = True
+    # Only show to Admin or Developer
+    role = st.session_state.get("current_user", {}).get("role", "")
+    if role not in ("Admin", "Developer"):
+        st.session_state["_config_warnings_shown"] = True
+        return
+
+    warnings = validate_config()
+    if warnings:
+        with st.expander("⚙️ Configuration Warnings — click to dismiss", expanded=False):
+            for w in warnings:
+                st.warning(w, icon="⚠️")
+            if st.button("✅ Dismiss", key="dismiss_warnings"):
+                st.session_state["_config_warnings_shown"] = True
+                st.rerun()
+    else:
+        st.session_state["_config_warnings_shown"] = True
 
 
 # ══════════════════════════════════════════════════════════════════════════════

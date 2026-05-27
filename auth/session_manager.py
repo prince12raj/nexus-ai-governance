@@ -105,6 +105,7 @@ def logout() -> None:
         "authenticated", "username", "current_user",
         "login_time", "last_activity",
         "login_attempts", "lockout_until",
+        "_config_warnings_shown",
     ]
     for key in auth_keys:
         st.session_state.pop(key, None)
@@ -331,14 +332,16 @@ def init_session_state() -> None:
     """
     defaults: Dict[str, Any] = {
         # Auth
-        "authenticated":         False,
-        "username":              None,
-        "current_user":          None,
-        "login_time":            0.0,
-        "last_activity":         0.0,
-        "login_attempts":        0,
-        "lockout_until":         0.0,
-        "auth_page":             "login",
+        "authenticated":            False,
+        "username":                 None,
+        "current_user":             None,
+        "login_time":               0.0,
+        "last_activity":            0.0,
+        "login_attempts":           0,
+        "lockout_until":            0.0,
+        "auth_page":                "login",
+        # UI state
+        "_config_warnings_shown":   False,
         # Navigation
         "current_page":          "Dashboard",
         # LLM
