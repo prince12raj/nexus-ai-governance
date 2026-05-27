@@ -1,34 +1,50 @@
+# Environment & Secrets
+.env
+.streamlit/secrets.toml
+
+# User Data (resets on deploy — never commit)
+data/users.json
+data/vector_cache/
+data/uploads/
+
+# Logs
+logs/
+
 # Python
 __pycache__/
 *.pyc
 *.pyo
+*.pyd
+*.pdb
+.Python
+
+# Virtual environments
+venv/
+env/
+ENV/
+.venv/
+
+# Build artifacts
 *.egg-info/
 dist/
 build/
-.venv/
-venv/
-env/
+*.egg
+.eggs/
 
-# Environment
-.env
-.env.production
-
-# Data & cache
-data/uploaded_docs/*
-data/processed/*
-data/vector_cache/*
-!data/**/.gitkeep
-
-# Logs
-logs/*.log
-!logs/.gitkeep
-
-# Streamlit
-.streamlit/
-
-# macOS
+# OS
 .DS_Store
+Thumbs.db
+desktop.ini
 
 # IDE
 .vscode/
 .idea/
+*.swp
+*.swo
+
+# Streamlit
+.streamlit/secrets.toml
+
+# FAISS index
+*.index
+*.faiss
