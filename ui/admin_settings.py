@@ -244,7 +244,7 @@ def _render_user_management() -> None:
         if rows:
             st.dataframe(
                 pd.DataFrame(rows),
-                use_container_width=True,
+                width='stretch',
                 hide_index=True,
             )
             st.caption(f"Total users: {len(rows)} ({sum(1 for r in rows if r['Registered'] != 'Demo User')} registered + {sum(1 for r in rows if r['Registered'] == 'Demo User')} demo)")
@@ -347,7 +347,7 @@ def _render_kb_management() -> None:
 
     c1, c2, c3 = st.columns(3)
     with c1:
-        if st.button("🔄 Reload Regulations Corpus", use_container_width=True):
+        if st.button("🔄 Reload Regulations Corpus", width='stretch'):
             with st.spinner("Reloading corpus…"):
                 if vs and hasattr(vs, "reload_corpus"):
                     vs.reload_corpus()
@@ -358,13 +358,13 @@ def _render_kb_management() -> None:
                     st.success("✅ Corpus reset to default regulations.")
 
     with c2:
-        if st.button("🧹 Clear User Documents", use_container_width=True):
+        if st.button("🧹 Clear User Documents", width='stretch'):
             from rag.vector_store import clear_user_documents
             removed = clear_user_documents()
             st.success(f"✅ Removed {removed} user-uploaded document(s).")
 
     with c3:
-        if st.button("💣 Clear Entire KB", use_container_width=True, type="secondary"):
+        if st.button("💣 Clear Entire KB", width='stretch', type="secondary"):
             if vs:
                 vs.clear()
                 st.warning("⚠️ Knowledge base cleared. Reload regulations to restore.")
@@ -408,7 +408,7 @@ def _render_audit_log() -> None:
 
     if filtered:
         df = pd.DataFrame(filtered)
-        st.dataframe(df, use_container_width=True, hide_index=True)
+        st.dataframe(df, width='stretch', hide_index=True)
 
         if st.button("📥 Export Audit Log (CSV)"):
             csv = df.to_csv(index=False)

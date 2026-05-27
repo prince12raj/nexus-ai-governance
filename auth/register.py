@@ -198,7 +198,7 @@ def _render_form() -> None:
         submitted = st.form_submit_button(
             "Create Account →",
             type="primary",
-            use_container_width=True,
+            width='stretch',
         )
 
     st.markdown("</div>", unsafe_allow_html=True)
@@ -368,7 +368,7 @@ def _render_switch_to_login() -> None:
         'Already have an account?</div>',
         unsafe_allow_html=True,
     )
-    if st.button("← Go to Login", use_container_width=True, type="secondary"):
+    if st.button("← Go to Login", width='stretch', type="secondary"):
         st.session_state["auth_page"] = "login"
         st.rerun()
 

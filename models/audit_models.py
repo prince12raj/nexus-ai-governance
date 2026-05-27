@@ -23,7 +23,6 @@ Usage:
     print(report.risk_level)     # "Medium Risk"
     print(report.is_passing)     # True
 """
-from __future__ import annotations
 
 import datetime
 import uuid

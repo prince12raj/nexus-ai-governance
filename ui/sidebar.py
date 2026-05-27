@@ -53,7 +53,7 @@ def render_sidebar() -> None:
             if st.button(
                 f"{icon}  {page}",
                 key=f"nav_{page}",
-                use_container_width=True,
+                width='stretch',
                 type="primary" if is_active else "secondary",
             ):
                 st.session_state["current_page"] = page
@@ -67,7 +67,7 @@ def render_sidebar() -> None:
         st.markdown('<hr style="margin:1rem 0;">', unsafe_allow_html=True)
 
         # ── Logout ─────────────────────────────────────────────────────────────
-        if st.button("🚪  Sign Out", use_container_width=True, type="secondary"):
+        if st.button("🚪  Sign Out", width='stretch', type="secondary"):
             logout()
             st.rerun()
 

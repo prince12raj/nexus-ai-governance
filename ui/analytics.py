@@ -142,7 +142,7 @@ def _render_trend_chart(reports: list) -> None:
             yaxis=dict(range=[0, 105]),
             showlegend=False,
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         st.info("Install plotly: pip install plotly")
 
@@ -182,7 +182,7 @@ def _render_framework_breakdown(reports: list) -> None:
             yaxis=dict(range=[0, 110]),
             showlegend=False,
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         import pandas as pd
         rows = []
@@ -197,7 +197,7 @@ def _render_framework_breakdown(reports: list) -> None:
                 "Worst":     f"{min(scores_list):.0f}%",
             })
         if rows:
-            st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+            st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
 
     except ImportError:
         st.info("Install plotly and pandas for charts.")
@@ -226,7 +226,7 @@ def _render_severity_chart(findings: list) -> None:
             yaxis_title="Count",
             showlegend=False,
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         pass
 
@@ -251,7 +251,7 @@ def _render_confidence_chart(findings: list) -> None:
             yaxis_title="Count",
             showlegend=False,
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         pass
 
@@ -279,7 +279,7 @@ def _render_top_violations(findings: list) -> None:
             }
             for ref, cnt in counts
         ]
-        st.dataframe(pd.DataFrame(rows), use_container_width=True, hide_index=True)
+        st.dataframe(pd.DataFrame(rows), width='stretch', hide_index=True)
     except ImportError:
         pass
 
@@ -305,7 +305,7 @@ def _render_department_chart(findings: list) -> None:
             showlegend=False,
             margin=dict(l=10, r=40, t=10, b=10),
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         pass
 
@@ -351,7 +351,7 @@ def _render_radar(reports: list) -> None:
             ),
             margin=dict(l=40, r=40, t=20, b=20),
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         pass
 
@@ -367,7 +367,7 @@ def _render_export_panel(reports: list, findings: list) -> None:
 
     with col1:
         st.markdown("**📋 Audit History (JSON)**")
-        if st.button("Export Audit History", use_container_width=True):
+        if st.button("Export Audit History", width='stretch'):
             import json
             try:
                 data = [
@@ -385,7 +385,7 @@ def _render_export_panel(reports: list, findings: list) -> None:
 
     with col2:
         st.markdown("**🔍 All Findings (CSV)**")
-        if st.button("Export Findings CSV", use_container_width=True):
+        if st.button("Export Findings CSV", width='stretch'):
             try:
                 import pandas as pd
                 rows = []
@@ -412,7 +412,7 @@ def _render_export_panel(reports: list, findings: list) -> None:
 
     with col3:
         st.markdown("**📊 Summary Report (Markdown)**")
-        if st.button("Export Summary", use_container_width=True):
+        if st.button("Export Summary", width='stretch'):
             md = _build_summary_markdown(reports, findings)
             st.download_button(
                 "💾 Download summary.md",

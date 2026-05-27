@@ -18,7 +18,6 @@ Usage:
     print(doc.word_count)
     print(doc.has_pii)
 """
-from __future__ import annotations
 
 import datetime
 import uuid

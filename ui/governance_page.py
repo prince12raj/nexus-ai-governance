@@ -37,7 +37,7 @@ def render_agentic_risk() -> None:
             ),
         )
 
-        if st.button("🤖 Run Risk Assessment", type="primary", use_container_width=True,
+        if st.button("🤖 Run Risk Assessment", type="primary", width='stretch',
                      disabled=not system_desc):
             _run_risk_assessment(system_desc, system_name or "AI System")
 
@@ -174,7 +174,7 @@ def _render_policy_generator() -> None:
     )
 
     if st.button("✍️ Generate Policy Section", type="primary",
-                 use_container_width=True, disabled=not section_title):
+                 width='stretch', disabled=not section_title):
         with st.spinner("Drafting compliant policy section…"):
             from agents.policy_analysis_agent import PolicyAnalysisAgent
             agent  = PolicyAnalysisAgent()

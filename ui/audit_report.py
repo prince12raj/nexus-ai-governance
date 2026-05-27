@@ -53,7 +53,7 @@ def render_compliance_auditor() -> None:
     _render_prescan_alerts(doc_text)
 
     # ── Run button ─────────────────────────────────────────────────────────────
-    if st.button("🔍 Run Compliance Audit", type="primary", use_container_width=True):
+    if st.button("🔍 Run Compliance Audit", type="primary", width='stretch'):
         _run_audit_ui(doc_text, selected_doc, framework)
 
 

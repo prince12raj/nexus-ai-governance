@@ -173,19 +173,19 @@ def render_dashboard() -> None:
                 unsafe_allow_html=True)
     qa1, qa2, qa3, qa4 = st.columns(4)
     with qa1:
-        if st.button("📄 Upload Policy", use_container_width=True, type="secondary"):
+        if st.button("📄 Upload Policy", width='stretch', type="secondary"):
             st.session_state["current_page"] = "Policy Upload"
             st.rerun()
     with qa2:
-        if st.button("🔍 Run Audit", use_container_width=True, type="secondary"):
+        if st.button("🔍 Run Audit", width='stretch', type="secondary"):
             st.session_state["current_page"] = "Compliance Auditor"
             st.rerun()
     with qa3:
-        if st.button("📚 Knowledge Base", use_container_width=True, type="secondary"):
+        if st.button("📚 Knowledge Base", width='stretch', type="secondary"):
             st.session_state["current_page"] = "Knowledge Base"
             st.rerun()
     with qa4:
-        if st.button("⚙️ Settings", use_container_width=True, type="secondary"):
+        if st.button("⚙️ Settings", width='stretch', type="secondary"):
             st.session_state["current_page"] = "Admin Settings"
             st.rerun()
 
@@ -225,7 +225,7 @@ def _render_score_gauge(score: float) -> None:
             number={"suffix": "%", "font": {"family": "Syne", "color": color, "size": 36}},
         ))
         fig.update_layout(**_layout(height=220, margin=dict(l=20, r=20, t=20, b=10)))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
 
         level = risk_level(score)
         st.markdown(
@@ -264,7 +264,7 @@ def _render_severity_donut(findings: list) -> None:
         ))
         fig.update_layout(**_layout(height=220, showlegend=False,
                           margin=dict(l=10, r=10, t=10, b=10)))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         for sev, cnt in {"Critical": 0, "High": 0}.items():
             st.metric(sev, cnt)
@@ -307,7 +307,7 @@ def _render_framework_radar() -> None:
             ),
             margin=dict(l=40, r=40, t=20, b=20),
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         st.info("Install plotly for charts.")
 
@@ -338,7 +338,7 @@ def _render_trend_chart(reports: list) -> None:
             yaxis=dict(range=[0, 105]),
             showlegend=False,
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         st.info("Install plotly for trend chart.")
 
@@ -370,7 +370,7 @@ def _render_dept_chart(findings: list) -> None:
             showlegend=False,
             margin=dict(l=10, r=30, t=10, b=10),
         ))
-        st.plotly_chart(fig, use_container_width=True)
+        st.plotly_chart(fig, width='stretch')
     except ImportError:
         for dept, cnt in list({"Engineering": 0}.items()):
             st.metric(dept, cnt)

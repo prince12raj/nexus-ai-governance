@@ -9,7 +9,6 @@ Covers:
 Usage:
     from models.governance_models import GovernanceDecision, RiskAssessment
 """
-from __future__ import annotations
 
 import datetime
 import uuid
