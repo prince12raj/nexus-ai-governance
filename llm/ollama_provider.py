@@ -25,7 +25,6 @@ Setup (run once in terminal):
     # Start Ollama server (if not already running)
     ollama serve
 """
-from __future__ import annotations
 
 import json
 from typing import Any, Dict, Generator, List, Optional

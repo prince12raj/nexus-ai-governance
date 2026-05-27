@@ -16,7 +16,6 @@ Usage:
     gap     = agent.gap_analysis(policy_text, framework="GDPR")
     draft   = agent.generate_section("Data Retention Policy", framework="GDPR")
 """
-from __future__ import annotations
 
 import re
 import time

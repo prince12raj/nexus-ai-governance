@@ -14,7 +14,6 @@ Usage:
     results = search("GDPR data retention", framework="GDPR", k=4)
     ingest_document(text, source="policy.pdf", framework="GDPR")
 """
-from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 

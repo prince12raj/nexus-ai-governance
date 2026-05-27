@@ -19,7 +19,6 @@ Usage:
     result = agent.assess("We use an ML model to automate loan decisions...")
     result = agent.classify_eu_ai_act("Facial recognition system for employee access control")
 """
-from __future__ import annotations
 
 import json
 import re

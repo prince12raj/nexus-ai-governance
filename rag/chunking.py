@@ -17,7 +17,6 @@ Usage:
     chunks = chunk_document(text, strategy="paragraphs")
     docs   = chunk_with_metadata(text, source="privacy_policy.pdf", framework="GDPR")
 """
-from __future__ import annotations
 
 import re
 import uuid

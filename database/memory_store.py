@@ -16,7 +16,6 @@ Switch to FAISS or ChromaDB for production by changing .env:
     VECTOR_STORE_BACKEND=chroma   → uses ChromaManager
     VECTOR_STORE_BACKEND=memory   → uses this file (default)
 """
-from __future__ import annotations
 
 import math
 import re

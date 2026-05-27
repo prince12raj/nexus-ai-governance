@@ -7,7 +7,6 @@ In production swap hash_password/verify_password for bcrypt:
     hash_password   = lambda p: bcrypt.hashpw(p.encode(), bcrypt.gensalt()).decode()
     verify_password = lambda p, h: bcrypt.checkpw(p.encode(), h.encode())
 """
-from __future__ import annotations
 
 import hashlib
 import hmac

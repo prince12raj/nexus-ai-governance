@@ -15,7 +15,6 @@ Usage:
     result = run_audit(policy_text="...", framework="GDPR")
     print(result["score"], result["findings"])
 """
-from __future__ import annotations
 
 import json
 import re

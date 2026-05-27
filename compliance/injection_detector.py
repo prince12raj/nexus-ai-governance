@@ -19,7 +19,6 @@ Usage:
         is_safe_to_process,
     )
 """
-from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Tuple

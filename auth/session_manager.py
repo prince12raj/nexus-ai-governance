@@ -16,7 +16,6 @@ Usage:
         has_permission, get_session_info,
     )
 """
-from __future__ import annotations
 
 import time
 from typing import Any, Dict, List, Optional

@@ -1,24 +1,42 @@
 """
 config/settings.py — Environment-driven settings for Nexus AI Governance Platform.
 
-All values are read from .env via python-dotenv.
+Reads from (in priority order):
+  1. Streamlit secrets (st.secrets) — when deployed on Streamlit Cloud
+  2. .env file — local development
+  3. Hard-coded defaults — fallback
+
 Access anywhere in the project:
     from config.settings import settings
     print(settings.OPENAI_API_KEY)
-
-Never import os.getenv() directly in other modules — always use settings.
 """
-from __future__ import annotations
 
 import os
 from pathlib import Path
-from typing import Optional
 
 from dotenv import load_dotenv
 
-# Load .env from the project root (works from any working directory)
+# Load .env from the project root (local dev only — ignored on Streamlit Cloud)
 _ENV_PATH = Path(__file__).resolve().parent.parent / ".env"
 load_dotenv(dotenv_path=_ENV_PATH, override=False)
+
+
+def _get(key: str, default: str = "") -> str:
+    """
+    Read a config value from Streamlit secrets first, then env vars, then default.
+    Safe to call even when Streamlit is not running (e.g. during tests).
+    """
+    # 1. Try Streamlit secrets (only available when running inside Streamlit)
+    try:
+        import streamlit as st
+        val = st.secrets.get(key)
+        if val is not None:
+            return str(val)
+    except Exception:
+        pass
+
+    # 2. Fall back to environment variable / .env
+    return os.getenv(key, default)
 
 
 class Settings:
@@ -43,71 +61,71 @@ class Settings:
     """
 
     # ── 1. OpenAI ─────────────────────────────────────────────────────────────
-    OPENAI_API_KEY: str = os.getenv("OPENAI_API_KEY", "")
-    OPENAI_MODEL:   str = os.getenv("OPENAI_MODEL", "gpt-4o")
-    OPENAI_ORG_ID:  str = os.getenv("OPENAI_ORG_ID", "")        # optional org ID
+    OPENAI_API_KEY: str = _get("OPENAI_API_KEY", "")
+    OPENAI_MODEL:   str = _get("OPENAI_MODEL", "gpt-4o")
+    OPENAI_ORG_ID:  str = _get("OPENAI_ORG_ID", "")        # optional org ID
 
     # ── 2. HuggingFace ────────────────────────────────────────────────────────
-    HUGGINGFACE_API_KEY:    str = os.getenv("HUGGINGFACE_API_KEY", "")
-    HUGGINGFACE_MODEL:      str = os.getenv(
+    HUGGINGFACE_API_KEY:    str = _get("HUGGINGFACE_API_KEY", "")
+    HUGGINGFACE_MODEL:      str = _get(
         "HUGGINGFACE_MODEL", "mistralai/Mistral-7B-Instruct-v0.2"
     )
-    HUGGINGFACE_EMBED_MODEL: str = os.getenv(
+    HUGGINGFACE_EMBED_MODEL: str = _get(
         "HUGGINGFACE_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
     )
 
     # ── 3. Ollama ─────────────────────────────────────────────────────────────
-    OLLAMA_HOST:        str = os.getenv("OLLAMA_HOST", "http://localhost:11434")
-    OLLAMA_MODEL:       str = os.getenv("OLLAMA_MODEL", "llama3")
-    OLLAMA_EMBED_MODEL: str = os.getenv("OLLAMA_EMBED_MODEL", "nomic-embed-text")
+    OLLAMA_HOST:        str = _get("OLLAMA_HOST", "http://localhost:11434")
+    OLLAMA_MODEL:       str = _get("OLLAMA_MODEL", "llama3")
+    OLLAMA_EMBED_MODEL: str = _get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
     # ── 4. Application ────────────────────────────────────────────────────────
-    APP_ENV:        str = os.getenv("APP_ENV", "development")   # development | staging | production
-    APP_NAME:       str = os.getenv("APP_NAME", "Nexus AI Governance Platform")
-    APP_VERSION:    str = os.getenv("APP_VERSION", "2.0.0")
-    APP_SECRET_KEY: str = os.getenv("APP_SECRET_KEY", "nexus-secret-change-me")
-    APP_HOST:       str = os.getenv("APP_HOST", "localhost")
-    APP_PORT:       int = int(os.getenv("APP_PORT", "8501"))
-    DEBUG:          bool = os.getenv("DEBUG", "false").lower() == "true"
+    APP_ENV:        str = _get("APP_ENV", "development")   # development | staging | production
+    APP_NAME:       str = _get("APP_NAME", "Nexus AI Governance Platform")
+    APP_VERSION:    str = _get("APP_VERSION", "2.0.0")
+    APP_SECRET_KEY: str = _get("APP_SECRET_KEY", "nexus-secret-change-me")
+    APP_HOST:       str = _get("APP_HOST", "localhost")
+    APP_PORT:       int = int(_get("APP_PORT", "8501"))
+    DEBUG:          bool = _get("DEBUG", "false").lower() == "true"
 
     # ── 5. Vector Store / Database ────────────────────────────────────────────
-    VECTOR_STORE_BACKEND: str = os.getenv(
+    VECTOR_STORE_BACKEND: str = _get(
         "VECTOR_STORE_BACKEND", "memory"
     )                                               # memory | faiss | chroma
-    CHROMA_PERSIST_DIR:   str = os.getenv("CHROMA_PERSIST_DIR", "./data/vector_cache")
-    FAISS_INDEX_PATH:     str = os.getenv("FAISS_INDEX_PATH", "./data/vector_cache/faiss.index")
-    DATA_DIR:             str = os.getenv("DATA_DIR", "./data")
+    CHROMA_PERSIST_DIR:   str = _get("CHROMA_PERSIST_DIR", "./data/vector_cache")
+    FAISS_INDEX_PATH:     str = _get("FAISS_INDEX_PATH", "./data/vector_cache/faiss.index")
+    DATA_DIR:             str = _get("DATA_DIR", "./data")
 
     # ── 6. RAG ────────────────────────────────────────────────────────────────
-    RAG_CHUNK_SIZE:     int   = int(os.getenv("RAG_CHUNK_SIZE", "800"))
-    RAG_CHUNK_OVERLAP:  int   = int(os.getenv("RAG_CHUNK_OVERLAP", "100"))
-    RAG_TOP_K:          int   = int(os.getenv("RAG_TOP_K", "4"))
-    RAG_MIN_CONFIDENCE: float = float(os.getenv("RAG_MIN_CONFIDENCE", "0.70"))
+    RAG_CHUNK_SIZE:     int   = int(_get("RAG_CHUNK_SIZE", "800"))
+    RAG_CHUNK_OVERLAP:  int   = int(_get("RAG_CHUNK_OVERLAP", "100"))
+    RAG_TOP_K:          int   = int(_get("RAG_TOP_K", "4"))
+    RAG_MIN_CONFIDENCE: float = float(_get("RAG_MIN_CONFIDENCE", "0.70"))
 
     # ── 7. Feature Flags ──────────────────────────────────────────────────────
-    ENABLE_PII_DETECTION:       bool = os.getenv("ENABLE_PII_DETECTION",       "true").lower()  == "true"
-    ENABLE_INJECTION_DETECTION: bool = os.getenv("ENABLE_INJECTION_DETECTION", "true").lower()  == "true"
-    ENABLE_HUMAN_IN_LOOP:       bool = os.getenv("ENABLE_HUMAN_IN_LOOP",       "false").lower() == "true"
-    ENABLE_AUDIT_LOGGING:       bool = os.getenv("ENABLE_AUDIT_LOGGING",       "true").lower()  == "true"
-    ENABLE_STREAMING:           bool = os.getenv("ENABLE_STREAMING",           "true").lower()  == "true"
-    ENABLE_RAG:                 bool = os.getenv("ENABLE_RAG",                 "true").lower()  == "true"
+    ENABLE_PII_DETECTION:       bool = _get("ENABLE_PII_DETECTION",       "true").lower()  == "true"
+    ENABLE_INJECTION_DETECTION: bool = _get("ENABLE_INJECTION_DETECTION", "true").lower()  == "true"
+    ENABLE_HUMAN_IN_LOOP:       bool = _get("ENABLE_HUMAN_IN_LOOP",       "false").lower() == "true"
+    ENABLE_AUDIT_LOGGING:       bool = _get("ENABLE_AUDIT_LOGGING",       "true").lower()  == "true"
+    ENABLE_STREAMING:           bool = _get("ENABLE_STREAMING",           "true").lower()  == "true"
+    ENABLE_RAG:                 bool = _get("ENABLE_RAG",                 "true").lower()  == "true"
 
     # ── 8. Auth & Security ────────────────────────────────────────────────────
-    SESSION_TIMEOUT_MINUTES: int  = int(os.getenv("SESSION_TIMEOUT_MINUTES", "60"))
-    MAX_LOGIN_ATTEMPTS:      int  = int(os.getenv("MAX_LOGIN_ATTEMPTS", "5"))
-    BCRYPT_ROUNDS:           int  = int(os.getenv("BCRYPT_ROUNDS", "12"))
+    SESSION_TIMEOUT_MINUTES: int  = int(_get("SESSION_TIMEOUT_MINUTES", "60"))
+    MAX_LOGIN_ATTEMPTS:      int  = int(_get("MAX_LOGIN_ATTEMPTS", "5"))
+    BCRYPT_ROUNDS:           int  = int(_get("BCRYPT_ROUNDS", "12"))
 
     # ── 9. File Upload ────────────────────────────────────────────────────────
-    MAX_FILE_SIZE_MB:    int  = int(os.getenv("MAX_FILE_SIZE_MB", "50"))
-    UPLOAD_DIR:          str  = os.getenv("UPLOAD_DIR", "./data/uploads")
-    ALLOWED_EXTENSIONS:  str  = os.getenv(
+    MAX_FILE_SIZE_MB:    int  = int(_get("MAX_FILE_SIZE_MB", "50"))
+    UPLOAD_DIR:          str  = _get("UPLOAD_DIR", "./data/uploads")
+    ALLOWED_EXTENSIONS:  str  = _get(
         "ALLOWED_EXTENSIONS", ".pdf,.docx,.txt,.csv,.json"
     )
 
     # ── 10. Logging ───────────────────────────────────────────────────────────
-    LOG_LEVEL:    str = os.getenv("LOG_LEVEL", "INFO")   # DEBUG | INFO | WARNING | ERROR
-    LOG_DIR:      str = os.getenv("LOG_DIR", "./logs")
-    LOG_TO_FILE:  bool = os.getenv("LOG_TO_FILE", "true").lower() == "true"
+    LOG_LEVEL:    str = _get("LOG_LEVEL", "INFO")   # DEBUG | INFO | WARNING | ERROR
+    LOG_DIR:      str = _get("LOG_DIR", "./logs")
+    LOG_TO_FILE:  bool = _get("LOG_TO_FILE", "true").lower() == "true"
 
     # ── Derived helpers ───────────────────────────────────────────────────────
 

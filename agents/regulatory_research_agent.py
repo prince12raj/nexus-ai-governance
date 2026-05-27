@@ -11,7 +11,6 @@ Usage:
     result = agent.answer("What are the GDPR requirements for data breach notification?")
     result = agent.search_regulations("encryption requirements", framework="HIPAA")
 """
-from __future__ import annotations
 
 import time
 from typing import Any, Dict, List, Optional

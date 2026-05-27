@@ -12,7 +12,6 @@ Usage:
     redacted = redact_pii(text)
     summary  = pii_risk_summary(found)
 """
-from __future__ import annotations
 
 import re
 from typing import Any, Dict, List, Optional, Tuple

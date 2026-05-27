@@ -10,7 +10,6 @@ Usage:
         load_all_users, save_user, delete_user,
     )
 """
-from __future__ import annotations
 
 import json
 import os

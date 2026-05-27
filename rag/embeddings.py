@@ -13,7 +13,6 @@ Usage:
     vectors = embed(["GDPR Article 5", "data retention policy"])
     vector  = embed_single("What is data minimisation?")
 """
-from __future__ import annotations
 
 from typing import List, Optional
 

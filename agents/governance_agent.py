@@ -14,7 +14,6 @@ Usage:
     response = agent.run("What are the GDPR requirements for data retention?")
     response = agent.run("Assess this AI system for governance risks", context={"system": "..."})
 """
-from __future__ import annotations
 
 import time
 from typing import Any, Dict, List, Optional

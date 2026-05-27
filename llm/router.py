@@ -44,7 +44,6 @@ Usage:
         payload={"messages": messages}
     )
 """
-from __future__ import annotations
 
 import json
 import re

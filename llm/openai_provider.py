@@ -8,7 +8,6 @@ Supports:
   - Compliance analysis via call_compliance_llm()
   - Graceful fallback to mock when no key is present
 """
-from __future__ import annotations
 
 import os
 from typing import Any, Dict, Generator, List, Optional

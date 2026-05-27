@@ -4,7 +4,6 @@ auth/roles.py — User database and role/permission definitions for Nexus AI Gov
 In production replace USERS_DB with a real database (PostgreSQL, MongoDB, etc.)
 and use bcrypt for password hashing.
 """
-from __future__ import annotations
 
 import hashlib
 from typing import Any, Dict, List

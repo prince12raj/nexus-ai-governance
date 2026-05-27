@@ -11,7 +11,6 @@ Usage:
     result = agent.build_plan(finding=finding_dict, framework="GDPR")
     result = agent.build_batch_plan(findings=findings_list, framework="GDPR")
 """
-from __future__ import annotations
 
 import time
 from typing import Any, Dict, List, Optional

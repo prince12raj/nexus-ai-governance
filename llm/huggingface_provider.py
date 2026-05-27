@@ -11,7 +11,6 @@ Common use-cases in this project:
   - Zero-shot classify: quick severity / category tagging
   - Compliance chat  : fallback when OpenAI key is not set
 """
-from __future__ import annotations
 
 import os
 from typing import Any, Dict, Generator, List, Optional

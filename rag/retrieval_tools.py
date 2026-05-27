@@ -12,7 +12,6 @@ Usage:
         format_context_for_prompt,
     )
 """
-from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
