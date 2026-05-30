@@ -76,7 +76,22 @@ def login(username: str, password: str) -> bool:
         "lockout_until":    0,
     })
 
-    # Update last login timestamp in persistent store
+    # Load this user's own audit history from DB (never another user's data)
+    try:
+        from auth.db_session import load_user_audits, load_user_documents
+        db_audits = load_user_audits(uname)
+        if db_audits:
+            st.session_state["audit_history"] = db_audits
+            logger.info("Loaded %d audits for user=%s", len(db_audits), uname)
+
+        db_docs = load_user_documents(uname)
+        if db_docs:
+            st.session_state["uploaded_docs"] = db_docs
+            logger.info("Loaded %d documents for user=%s", len(db_docs), uname)
+    except Exception as exc:
+        logger.warning("Failed to load user data from DB: %s", exc)
+
+    # Update last login timestamp
     try:
         update_last_login(uname)
     except Exception:

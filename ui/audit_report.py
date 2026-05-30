@@ -234,26 +234,44 @@ def _render_audit_results(findings, score, framework, result):
 
 
 def _save_audit_report(doc_name, framework, findings, score):
-    """Save audit report to session history."""
+    """Save audit report to session history AND Supabase DB."""
     try:
         from models.audit_models import AuditReport
         import datetime
 
         critical = sum(1 for f in findings if getattr(f, "severity", "") == "Critical")
-        report   = AuditReport(
+        high     = sum(1 for f in findings if getattr(f, "severity", "") == "High")
+        medium   = sum(1 for f in findings if getattr(f, "severity", "") == "Medium")
+        low      = sum(1 for f in findings if getattr(f, "severity", "") == "Low")
+
+        report = AuditReport(
             compliance_score=score,
             executive_summary="",
             framework_targeted=framework,
+            document_name=doc_name,
             total_findings=len(findings),
             critical_findings=critical,
+            high_findings=high,
+            medium_findings=medium,
+            low_findings=low,
             generated_timestamp=datetime.datetime.now().isoformat(),
             findings=findings,
         )
+
+        # Save to session state
         history = st.session_state.setdefault("audit_history", [])
         history.append(report)
         st.session_state["current_report"] = report
-    except Exception:
-        pass
+
+        # Save to Supabase DB (per user — other users never see this)
+        username = st.session_state.get("username", "")
+        if username:
+            from auth.db_session import save_audit_to_db
+            save_audit_to_db(username, report)
+
+    except Exception as exc:
+        import logging
+        logging.getLogger("nexus").warning("_save_audit_report error: %s", exc)
 
 
 # ══════════════════════════════════════════════════════════════════════════════

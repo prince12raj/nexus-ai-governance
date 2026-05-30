@@ -1,0 +1,336 @@
+"""
+database/database_manager.py — Supabase persistent database for Nexus AI Governance Platform.
+
+Handles:
+  - User registration and retrieval (replaces data/users.json)
+  - Audit report storage per user (no cross-user data leakage)
+  - Uploaded document tracking per user
+  - Falls back to local JSON file if Supabase not configured
+
+Setup:
+    pip install supabase
+    Add DATABASE_URL to .env and Streamlit secrets
+"""
+import json
+import os
+from datetime import datetime
+from typing import Any, Dict, List, Optional
+
+from config.logging_config import get_logger
+
+logger = get_logger("nexus.database.manager")
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# CONNECTION
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _get_client():
+    """Get Supabase client. Returns None if not configured."""
+    try:
+        from supabase import create_client  # type: ignore
+        url = _get_secret("SUPABASE_URL")
+        key = _get_secret("SUPABASE_KEY")
+        if not url or not key:
+            return None
+        return create_client(url, key)
+    except ImportError:
+        logger.warning("supabase package not installed — using local file fallback.")
+        return None
+    except Exception as exc:
+        logger.warning("Supabase connection failed: %s — using local fallback.", exc)
+        return None
+
+
+def _get_secret(key: str) -> str:
+    """Read from Streamlit secrets or environment."""
+    try:
+        import streamlit as st
+        val = st.secrets.get(key)
+        if val:
+            return str(val)
+    except Exception:
+        pass
+    return os.getenv(key, "")
+
+
+def is_configured() -> bool:
+    """Return True if Supabase is configured."""
+    return bool(_get_secret("SUPABASE_URL") and _get_secret("SUPABASE_KEY"))
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# USER OPERATIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def db_get_user(username: str) -> Optional[Dict[str, Any]]:
+    """Get a user by username from Supabase."""
+    client = _get_client()
+    if not client:
+        return None
+    try:
+        result = client.table("users").select("*").eq(
+            "username", username.lower()
+        ).execute()
+        if result.data:
+            user = result.data[0]
+            # Parse JSON fields
+            if isinstance(user.get("permissions"), str):
+                user["permissions"] = json.loads(user["permissions"])
+            return user
+        return None
+    except Exception as exc:
+        logger.error("db_get_user failed: %s", exc)
+        return None
+
+
+def db_user_exists(username: str) -> bool:
+    """Check if username exists in Supabase."""
+    return db_get_user(username) is not None
+
+
+def db_email_exists(email: str) -> bool:
+    """Check if email exists in Supabase."""
+    client = _get_client()
+    if not client:
+        return False
+    try:
+        result = client.table("users").select("username").eq(
+            "email", email.lower()
+        ).execute()
+        return bool(result.data)
+    except Exception as exc:
+        logger.error("db_email_exists failed: %s", exc)
+        return False
+
+
+def db_register_user(
+    username: str,
+    password_hash: str,
+    full_name: str,
+    email: str,
+    role: str = "Compliance Officer",
+    department: str = "General",
+) -> tuple[bool, str]:
+    """Register a new user in Supabase."""
+    client = _get_client()
+    if not client:
+        return False, "Database not configured"
+
+    try:
+        parts  = full_name.strip().split()
+        avatar = (parts[0][0] + parts[-1][0]).upper() if len(parts) >= 2 else full_name[:2].upper()
+
+        permissions_map = {
+            "Admin":              ["read", "write", "audit", "export", "admin"],
+            "Developer":          ["read", "write", "audit", "export", "admin", "developer"],
+            "Compliance Officer": ["read", "write", "audit", "export"],
+            "Auditor":            ["read", "audit", "export"],
+            "Viewer":             ["read"],
+        }
+
+        data = {
+            "username":      username.lower(),
+            "password_hash": password_hash,
+            "role":          role,
+            "name":          full_name.strip(),
+            "email":         email.lower(),
+            "avatar":        avatar,
+            "department":    department or "General",
+            "permissions":   json.dumps(permissions_map.get(role, ["read"])),
+            "registered_at": datetime.now().isoformat(),
+        }
+
+        client.table("users").insert(data).execute()
+        logger.info("User registered in DB: %s", username)
+        return True, f"Account created successfully! Welcome, {full_name.strip()}."
+
+    except Exception as exc:
+        logger.error("db_register_user failed: %s", exc)
+        if "duplicate" in str(exc).lower() or "unique" in str(exc).lower():
+            return False, "Username or email already exists."
+        return False, f"Registration failed: {exc}"
+
+
+def db_update_last_login(username: str) -> None:
+    """Update last login timestamp."""
+    client = _get_client()
+    if not client:
+        return
+    try:
+        client.table("users").update(
+            {"last_login": datetime.now().isoformat()}
+        ).eq("username", username.lower()).execute()
+    except Exception as exc:
+        logger.error("db_update_last_login failed: %s", exc)
+
+
+def db_get_all_users() -> List[Dict[str, Any]]:
+    """Get all registered users (without password hashes)."""
+    client = _get_client()
+    if not client:
+        return []
+    try:
+        result = client.table("users").select(
+            "username,role,name,email,avatar,department,registered_at,last_login"
+        ).execute()
+        return result.data or []
+    except Exception as exc:
+        logger.error("db_get_all_users failed: %s", exc)
+        return []
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# AUDIT REPORT OPERATIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def db_save_audit_report(username: str, report: Any) -> bool:
+    """
+    Save an audit report to Supabase for a specific user.
+
+    Args:
+        username: The user who ran the audit.
+        report:   AuditReport object or dict.
+
+    Returns:
+        True if saved successfully.
+    """
+    client = _get_client()
+    if not client:
+        return False
+
+    try:
+        # Convert report to dict
+        if hasattr(report, "model_dump"):
+            report_dict = report.model_dump()
+        elif hasattr(report, "dict"):
+            report_dict = report.dict()
+        else:
+            report_dict = dict(report)
+
+        data = {
+            "report_id":         report_dict.get("report_id", ""),
+            "username":          username.lower(),
+            "framework":         report_dict.get("framework_targeted", ""),
+            "document_name":     report_dict.get("document_name", "Unknown"),
+            "compliance_score":  report_dict.get("compliance_score", 0),
+            "total_findings":    report_dict.get("total_findings", 0),
+            "critical_findings": report_dict.get("critical_findings", 0),
+            "high_findings":     report_dict.get("high_findings", 0),
+            "medium_findings":   report_dict.get("medium_findings", 0),
+            "low_findings":      report_dict.get("low_findings", 0),
+            "findings_json":     json.dumps(
+                report_dict.get("findings", []), default=str
+            ),
+            "pii_detected":      json.dumps(
+                report_dict.get("pii_detected", {}), default=str
+            ),
+            "injection_risk":    report_dict.get("injection_risk", 0),
+            "provider_used":     report_dict.get("provider_used", "unknown"),
+            "executive_summary": report_dict.get("executive_summary", ""),
+            "duration_sec":      report_dict.get("duration_sec", 0),
+        }
+
+        client.table("audit_reports").upsert(data).execute()
+        logger.info("Audit report saved to DB: %s | user=%s", data["report_id"], username)
+        return True
+
+    except Exception as exc:
+        logger.error("db_save_audit_report failed: %s", exc)
+        return False
+
+
+def db_get_user_audits(username: str) -> List[Dict[str, Any]]:
+    """
+    Get all audit reports for a specific user only.
+    Other users' reports are never returned.
+
+    Args:
+        username: The user to fetch reports for.
+
+    Returns:
+        List of audit report dicts, newest first.
+    """
+    client = _get_client()
+    if not client:
+        return []
+
+    try:
+        result = client.table("audit_reports").select("*").eq(
+            "username", username.lower()
+        ).order("created_at", desc=True).execute()
+
+        reports = []
+        for row in (result.data or []):
+            # Parse JSON fields back
+            if isinstance(row.get("findings_json"), str):
+                row["findings_json"] = json.loads(row["findings_json"])
+            if isinstance(row.get("pii_detected"), str):
+                row["pii_detected"] = json.loads(row["pii_detected"])
+            reports.append(row)
+
+        return reports
+
+    except Exception as exc:
+        logger.error("db_get_user_audits failed: %s", exc)
+        return []
+
+
+def db_delete_audit(report_id: str, username: str) -> bool:
+    """Delete an audit report — only if it belongs to the user."""
+    client = _get_client()
+    if not client:
+        return False
+    try:
+        client.table("audit_reports").delete().eq(
+            "report_id", report_id
+        ).eq("username", username.lower()).execute()
+        return True
+    except Exception as exc:
+        logger.error("db_delete_audit failed: %s", exc)
+        return False
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DOCUMENT OPERATIONS
+# ══════════════════════════════════════════════════════════════════════════════
+
+def db_save_document(username: str, doc: Dict[str, Any]) -> bool:
+    """Save an uploaded document record for a user."""
+    client = _get_client()
+    if not client:
+        return False
+    try:
+        data = {
+            "doc_id":        doc.get("id", ""),
+            "username":      username.lower(),
+            "name":          doc.get("name", ""),
+            "framework":     doc.get("framework", "GDPR"),
+            "text_content":  doc.get("text", "")[:10000],  # cap at 10k chars
+            "char_count":    len(doc.get("text", "")),
+            "word_count":    len(doc.get("text", "").split()),
+            "pii_detected":  json.dumps(doc.get("pii_detected", {})),
+            "injection_risk":doc.get("injection_risk", 0),
+        }
+        client.table("uploaded_documents").upsert(data).execute()
+        return True
+    except Exception as exc:
+        logger.error("db_save_document failed: %s", exc)
+        return False
+
+
+def db_get_user_documents(username: str) -> List[Dict[str, Any]]:
+    """Get all documents uploaded by a specific user only."""
+    client = _get_client()
+    if not client:
+        return []
+    try:
+        result = client.table("uploaded_documents").select(
+            "doc_id,name,framework,char_count,word_count,pii_detected,injection_risk,uploaded_at"
+        ).eq("username", username.lower()).order(
+            "uploaded_at", desc=True
+        ).execute()
+        return result.data or []
+    except Exception as exc:
+        logger.error("db_get_user_documents failed: %s", exc)
+        return []

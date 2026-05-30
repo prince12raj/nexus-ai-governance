@@ -43,3 +43,6 @@ streamlit-option-menu>=0.3.12
 
 # ── Utilities ──────────────────────────────────────────
 requests>=2.31.0
+
+# ── Database (Supabase) ────────────────────────────────
+supabase>=2.0.0
