@@ -297,6 +297,97 @@ def db_delete_audit(report_id: str, username: str) -> bool:
 
 
 # ══════════════════════════════════════════════════════════════════════════════
+# GLOBAL STATS (platform-wide, visible to all users)
+# ══════════════════════════════════════════════════════════════════════════════
+
+def db_get_global_stats() -> Dict[str, Any]:
+    """
+    Return platform-wide aggregate stats — safe to show all users.
+    Never exposes individual audit content or user details.
+
+    Returns dict with:
+        total_audits        — total audits ever run on the platform
+        total_users         — total registered users
+        total_documents     — total documents uploaded
+        avg_compliance_score — platform-wide average compliance score
+        audits_by_framework — {framework: count} for bar chart
+        audits_over_time    — [{date, count}] for trend chart
+        platform_avg_score  — same as avg_compliance_score (alias)
+    """
+    client = _get_client()
+    if not client:
+        return _empty_global_stats()
+
+    try:
+        # ── Total users ────────────────────────────────────────────────────────
+        users_result = client.table("users").select(
+            "username", count="exact"
+        ).execute()
+        total_users = users_result.count or len(users_result.data or [])
+
+        # ── Audit aggregates ───────────────────────────────────────────────────
+        audits_result = client.table("audit_reports").select(
+            "framework, compliance_score, created_at"
+        ).execute()
+        audit_rows = audits_result.data or []
+        total_audits = len(audit_rows)
+
+        # Average compliance score across all audits
+        scores = [r.get("compliance_score", 0) for r in audit_rows if r.get("compliance_score") is not None]
+        avg_score = round(sum(scores) / len(scores), 1) if scores else 0.0
+
+        # Audits per framework
+        audits_by_framework: Dict[str, int] = {}
+        for row in audit_rows:
+            fw = row.get("framework") or "Unknown"
+            audits_by_framework[fw] = audits_by_framework.get(fw, 0) + 1
+
+        # Audits over time — group by date (YYYY-MM-DD)
+        date_counts: Dict[str, int] = {}
+        for row in audit_rows:
+            created = (row.get("created_at") or "")[:10]
+            if created:
+                date_counts[created] = date_counts.get(created, 0) + 1
+        audits_over_time = [
+            {"date": d, "count": c}
+            for d, c in sorted(date_counts.items())
+        ]
+
+        # ── Total documents ────────────────────────────────────────────────────
+        docs_result = client.table("uploaded_documents").select(
+            "doc_id", count="exact"
+        ).execute()
+        total_documents = docs_result.count or len(docs_result.data or [])
+
+        return {
+            "total_audits":          total_audits,
+            "total_users":           total_users,
+            "total_documents":       total_documents,
+            "avg_compliance_score":  avg_score,
+            "platform_avg_score":    avg_score,
+            "audits_by_framework":   audits_by_framework,
+            "audits_over_time":      audits_over_time,
+        }
+
+    except Exception as exc:
+        logger.error("db_get_global_stats failed: %s", exc)
+        return _empty_global_stats()
+
+
+def _empty_global_stats() -> Dict[str, Any]:
+    """Return zeroed-out stats when DB is unavailable."""
+    return {
+        "total_audits":         0,
+        "total_users":          0,
+        "total_documents":      0,
+        "avg_compliance_score": 0.0,
+        "platform_avg_score":   0.0,
+        "audits_by_framework":  {},
+        "audits_over_time":     [],
+    }
+
+
+# ══════════════════════════════════════════════════════════════════════════════
 # DOCUMENT OPERATIONS
 # ══════════════════════════════════════════════════════════════════════════════
 

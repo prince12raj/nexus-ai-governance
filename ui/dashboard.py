@@ -146,6 +146,9 @@ def render_dashboard() -> None:
                     unsafe_allow_html=True)
         _render_dept_chart(all_findings)
 
+    # ── Platform-wide stats (visible to all users) ─────────────────────────────
+    _render_platform_stats()
+
     # ── Recent activity ────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">🕐 Recent Activity</div>',
                 unsafe_allow_html=True)
@@ -188,6 +191,203 @@ def render_dashboard() -> None:
         if st.button("⚙️ Settings", width='stretch', type="secondary"):
             st.session_state["current_page"] = "Admin Settings"
             st.rerun()
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# PLATFORM-WIDE STATS SECTION
+# ══════════════════════════════════════════════════════════════════════════════
+
+def _render_platform_stats() -> None:
+    """
+    Render global platform statistics visible to ALL users.
+    Shows counts + charts but never individual audit content.
+    """
+    st.markdown('<div class="section-header">🌐 Platform Statistics</div>',
+                unsafe_allow_html=True)
+
+    # Fetch global stats from DB
+    stats = _load_global_stats()
+
+    total_audits   = stats.get("total_audits", 0)
+    total_users    = stats.get("total_users", 0)
+    total_docs     = stats.get("total_documents", 0)
+    platform_score = stats.get("avg_compliance_score", 0.0)
+
+    # ── Platform KPI row ───────────────────────────────────────────────────────
+    p1, p2, p3, p4 = st.columns(4)
+    with p1:
+        st.metric("🔍 Total Audits Run",        total_audits,   help="All audits ever run on the platform")
+    with p2:
+        st.metric("👥 Registered Users",         total_users,    help="Total registered accounts")
+    with p3:
+        st.metric("📄 Documents Uploaded",       total_docs,     help="Total documents uploaded platform-wide")
+    with p4:
+        st.metric("🛡️ Platform Avg Score",      f"{platform_score:.1f}%", help="Average compliance score across all audits")
+
+    st.markdown("")
+
+    # ── Charts row ─────────────────────────────────────────────────────────────
+    col_fw, col_trend = st.columns([1, 1.4])
+
+    with col_fw:
+        st.markdown('<div class="section-header">📊 Audits by Framework</div>',
+                    unsafe_allow_html=True)
+        _render_global_framework_bar(stats.get("audits_by_framework", {}))
+
+    with col_trend:
+        st.markdown('<div class="section-header">📈 Audits Over Time</div>',
+                    unsafe_allow_html=True)
+        _render_global_trend(stats.get("audits_over_time", []))
+
+
+def _load_global_stats() -> dict:
+    """
+    Load global stats from Supabase if available,
+    otherwise fall back to session-state counts so local dev still works.
+    """
+    try:
+        from database.database_manager import db_get_global_stats, is_configured
+        if is_configured():
+            return db_get_global_stats()
+    except Exception:
+        pass
+
+    # Local fallback — count from current session only
+    reports = st.session_state.get("audit_history", [])
+    fw_counts: dict = {}
+    date_counts: dict = {}
+    for r in reports:
+        fw = getattr(r, "framework_targeted", "Unknown")
+        fw_counts[fw] = fw_counts.get(fw, 0) + 1
+        ts = getattr(r, "generated_timestamp", "")[:10]
+        if ts:
+            date_counts[ts] = date_counts.get(ts, 0) + 1
+
+    scores = [getattr(r, "compliance_score", 0) for r in reports]
+    avg    = round(sum(scores) / len(scores), 1) if scores else 0.0
+
+    return {
+        "total_audits":         len(reports),
+        "total_users":          1,
+        "total_documents":      len(st.session_state.get("uploaded_docs", [])),
+        "avg_compliance_score": avg,
+        "platform_avg_score":   avg,
+        "audits_by_framework":  fw_counts,
+        "audits_over_time":     [
+            {"date": d, "count": c}
+            for d, c in sorted(date_counts.items())
+        ],
+    }
+
+
+def _render_global_framework_bar(audits_by_framework: dict) -> None:
+    """Horizontal bar chart: audits per framework across the whole platform."""
+    try:
+        import plotly.graph_objects as go
+
+        if not audits_by_framework:
+            st.info("No audits recorded yet.")
+            return
+
+        frameworks = list(audits_by_framework.keys())
+        counts     = [audits_by_framework[fw] for fw in frameworks]
+
+        # Colour each bar by framework
+        palette = {
+            "GDPR":      "#3b7ff5",
+            "HIPAA":     "#00e5a0",
+            "ISO 27001": "#f5a623",
+            "PCI-DSS":   "#ff4757",
+            "SOC 2":     "#a78bfa",
+        }
+        colors = [palette.get(fw, "#8a9bbc") for fw in frameworks]
+
+        fig = go.Figure(go.Bar(
+            x=counts,
+            y=frameworks,
+            orientation="h",
+            marker=dict(color=colors, opacity=0.9),
+            text=counts,
+            textposition="outside",
+            textfont=dict(color="#e8edf8", size=12),
+        ))
+        fig.update_layout(**_layout(
+            height=260,
+            xaxis_title="Number of Audits",
+            yaxis_title="",
+            showlegend=False,
+            margin=dict(l=10, r=40, t=10, b=10),
+        ))
+        st.plotly_chart(fig, width='stretch')
+
+    except ImportError:
+        for fw, cnt in audits_by_framework.items():
+            st.metric(fw, cnt)
+
+
+def _render_global_trend(audits_over_time: list) -> None:
+    """Line chart: total audits run per day across the whole platform."""
+    try:
+        import plotly.graph_objects as go
+
+        if not audits_over_time:
+            st.info("No audit history to display yet.")
+            return
+
+        dates  = [item["date"]  for item in audits_over_time]
+        counts = [item["count"] for item in audits_over_time]
+
+        # Cumulative line
+        cumulative = []
+        total = 0
+        for c in counts:
+            total += c
+            cumulative.append(total)
+
+        fig = go.Figure()
+
+        # Daily bars
+        fig.add_trace(go.Bar(
+            x=dates, y=counts,
+            name="Daily Audits",
+            marker=dict(color="rgba(59,127,245,0.4)"),
+        ))
+
+        # Cumulative line
+        fig.add_trace(go.Scatter(
+            x=dates, y=cumulative,
+            name="Cumulative",
+            mode="lines+markers",
+            line=dict(color="#00e5a0", width=2.5),
+            marker=dict(size=6),
+            yaxis="y2",
+        ))
+
+        fig.update_layout(**_layout(
+            height=260,
+            showlegend=True,
+            legend=dict(
+                orientation="h", yanchor="bottom", y=1.02,
+                xanchor="right", x=1,
+                font=dict(color="#8a9bbc", size=11),
+            ),
+            xaxis_title="",
+            yaxis=dict(title="Daily", side="left"),
+            yaxis2=dict(
+                title="Cumulative",
+                overlaying="y",
+                side="right",
+                showgrid=False,
+                tickfont=dict(color="#00e5a0"),
+            ),
+            margin=dict(l=10, r=50, t=30, b=10),
+            barmode="overlay",
+        ))
+        st.plotly_chart(fig, width='stretch')
+
+    except ImportError:
+        for item in audits_over_time[-5:]:
+            st.write(f"{item['date']}: {item['count']} audit(s)")
 
 
 # ══════════════════════════════════════════════════════════════════════════════
