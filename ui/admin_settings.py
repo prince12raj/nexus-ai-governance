@@ -230,15 +230,20 @@ def _render_user_management() -> None:
         all_users = load_all_users()
         rows = []
         for username, info in all_users.items():
+            # ── FIX: Supabase returns None for null columns, not "".
+            # Use `or ""` to safely coerce None → "" before slicing.
+            registered_at = (info.get("registered_at") or "")[:10] or "Demo User"
+            last_login    = (info.get("last_login")    or "")[:16] or "Never"
+
             rows.append({
-                "Username":    username,
-                "Name":        info.get("name", ""),
-                "Role":        info.get("role", ""),
-                "Department":  info.get("department", ""),
-                "Email":       info.get("email", ""),
-                "Registered":  info.get("registered_at", "Demo User")[:10],
-                "Last Login":  info.get("last_login", "")[:16] or "Never",
-                "Status":      "✅ Active",
+                "Username":   username,
+                "Name":       info.get("name", ""),
+                "Role":       info.get("role", ""),
+                "Department": info.get("department", ""),
+                "Email":      info.get("email", ""),
+                "Registered": registered_at,
+                "Last Login": last_login,
+                "Status":     "✅ Active",
             })
 
         if rows:
@@ -247,7 +252,11 @@ def _render_user_management() -> None:
                 width='stretch',
                 hide_index=True,
             )
-            st.caption(f"Total users: {len(rows)} ({sum(1 for r in rows if r['Registered'] != 'Demo User')} registered + {sum(1 for r in rows if r['Registered'] == 'Demo User')} demo)")
+            st.caption(
+                f"Total users: {len(rows)} "
+                f"({sum(1 for r in rows if r['Registered'] != 'Demo User')} registered"
+                f" + {sum(1 for r in rows if r['Registered'] == 'Demo User')} demo)"
+            )
 
     except ImportError:
         st.info("User management requires pandas: pip install pandas")
@@ -382,7 +391,7 @@ def _render_audit_log() -> None:
     for r in session_audits:
         dynamic_events.append({
             "timestamp": getattr(r, "generated_timestamp", "")[:16],
-            "user":      st.session_state.get("current_user", {}).get("name", "user"),
+            "user":      (st.session_state.get("current_user") or {}).get("name", "user"),
             "action":    "Run Compliance Audit",
             "resource":  getattr(r, "framework_targeted", ""),
             "result":    f"✅ Score: {getattr(r, 'compliance_score', 0):.0f}%",
