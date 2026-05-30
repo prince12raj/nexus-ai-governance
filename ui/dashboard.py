@@ -10,6 +10,17 @@ import streamlit as st
 from compliance.scoring import risk_level, score_color
 
 
+def _get_field(r, field: str, default=None):
+    """
+    Safely read a field from either a dict (Supabase row) or an object (AuditReport).
+    Supabase returns dicts; in-session reports are dataclass/Pydantic objects.
+    Also handles field name aliases (e.g. framework_targeted vs framework).
+    """
+    if isinstance(r, dict):
+        return r.get(field, default)
+    return getattr(r, field, default)
+
+
 def _layout(**overrides) -> dict:
     """
     Merge PLOTLY_DARK with per-chart overrides.
@@ -18,7 +29,6 @@ def _layout(**overrides) -> dict:
     """
     from config.constants import PLOTLY_DARK
     base = dict(PLOTLY_DARK)
-    # Deep-merge axis dicts instead of replacing them
     for key in ("xaxis", "yaxis"):
         if key in overrides and key in base:
             merged = dict(base[key])
@@ -33,7 +43,6 @@ def _layout(**overrides) -> dict:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_page_header(title: str, subtitle: str, badge: str = "") -> None:
-    """Render the standard page header with gradient top border."""
     badge_html = f'<span class="nexus-badge">{badge}</span>' if badge else ""
     st.markdown(f"""
     <div class="nexus-header">
@@ -43,15 +52,7 @@ def render_page_header(title: str, subtitle: str, badge: str = "") -> None:
     """, unsafe_allow_html=True)
 
 
-def render_kpi_card(
-    label: str,
-    value: str,
-    delta: str,
-    delta_dir: str,
-    icon: str,
-    color: str,
-) -> None:
-    """Render a KPI metric card with delta indicator."""
+def render_kpi_card(label, value, delta, delta_dir, icon, color) -> None:
     arrow = "↑" if delta_dir == "up" else "↓" if delta_dir == "down" else "–"
     st.markdown(f"""
     <div class="kpi-card {color}">
@@ -68,7 +69,6 @@ def render_kpi_card(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def render_dashboard() -> None:
-    """Render the main dashboard page."""
     from auth.session_manager import get_current_user
     user = get_current_user()
 
@@ -79,13 +79,21 @@ def render_dashboard() -> None:
         user.get("role", "") if user else "",
     )
 
-    reports      = st.session_state.get("audit_history", [])
-    all_findings = [f for r in reports for f in r.findings]
+    reports = st.session_state.get("audit_history", [])
+
+    # Reports from Supabase are dicts; in-session reports are objects.
+    # Use _get_field() everywhere so both work transparently.
+    # findings_json is the DB column name; findings is the object attribute.
+    all_findings = []
+    for r in reports:
+        findings = _get_field(r, "findings") or _get_field(r, "findings_json") or []
+        if isinstance(findings, list):
+            all_findings.extend(findings)
 
     # ── KPI row ────────────────────────────────────────────────────────────────
     avg_score      = _avg_score(reports)
-    total_findings = sum(getattr(r, "total_findings", 0) for r in reports)
-    critical_count = sum(getattr(r, "critical_findings", 0) for r in reports)
+    total_findings = sum(_get_field(r, "total_findings", 0) for r in reports)
+    critical_count = sum(_get_field(r, "critical_findings", 0) for r in reports)
     docs_count     = len(st.session_state.get("uploaded_docs", []))
 
     c1, c2, c3, c4 = st.columns(4)
@@ -154,10 +162,12 @@ def render_dashboard() -> None:
                 unsafe_allow_html=True)
     if reports:
         for r in reversed(reports[-5:]):
-            ts    = getattr(r, "generated_timestamp", "")
-            score = getattr(r, "compliance_score", 0)
-            fw    = getattr(r, "framework_targeted", "")
-            total = getattr(r, "total_findings", 0)
+            # DB rows use created_at + framework; objects use generated_timestamp + framework_targeted
+            ts    = _get_field(r, "generated_timestamp") or _get_field(r, "created_at") or ""
+            score = _get_field(r, "compliance_score", 0) or 0
+            fw    = _get_field(r, "framework_targeted") or _get_field(r, "framework") or ""
+            total = _get_field(r, "total_findings", 0) or 0
+            ts    = str(ts)
             st.markdown(f"""
             <div class="timeline-item">
               <span class="timeline-time">{ts[11:19] if len(ts) > 10 else ts}</span>
@@ -198,14 +208,10 @@ def render_dashboard() -> None:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def _render_platform_stats() -> None:
-    """
-    Render global platform statistics visible to ALL users.
-    Shows counts + charts but never individual audit content.
-    """
+    """Global platform statistics — visible to ALL users. Shows counts + charts."""
     st.markdown('<div class="section-header">🌐 Platform Statistics</div>',
                 unsafe_allow_html=True)
 
-    # Fetch global stats from DB
     stats = _load_global_stats()
 
     total_audits   = stats.get("total_audits", 0)
@@ -213,22 +219,19 @@ def _render_platform_stats() -> None:
     total_docs     = stats.get("total_documents", 0)
     platform_score = stats.get("avg_compliance_score", 0.0)
 
-    # ── Platform KPI row ───────────────────────────────────────────────────────
     p1, p2, p3, p4 = st.columns(4)
     with p1:
-        st.metric("🔍 Total Audits Run",        total_audits,   help="All audits ever run on the platform")
+        st.metric("🔍 Total Audits Run",    total_audits,              help="All audits ever run on the platform")
     with p2:
-        st.metric("👥 Registered Users",         total_users,    help="Total registered accounts")
+        st.metric("👥 Registered Users",    total_users,               help="Total registered accounts")
     with p3:
-        st.metric("📄 Documents Uploaded",       total_docs,     help="Total documents uploaded platform-wide")
+        st.metric("📄 Documents Uploaded",  total_docs,                help="Total documents uploaded platform-wide")
     with p4:
-        st.metric("🛡️ Platform Avg Score",      f"{platform_score:.1f}%", help="Average compliance score across all audits")
+        st.metric("🛡️ Platform Avg Score", f"{platform_score:.1f}%",  help="Average compliance score across all audits")
 
     st.markdown("")
 
-    # ── Charts row ─────────────────────────────────────────────────────────────
     col_fw, col_trend = st.columns([1, 1.4])
-
     with col_fw:
         st.markdown('<div class="section-header">📊 Audits by Framework</div>',
                     unsafe_allow_html=True)
@@ -241,10 +244,7 @@ def _render_platform_stats() -> None:
 
 
 def _load_global_stats() -> dict:
-    """
-    Load global stats from Supabase if available,
-    otherwise fall back to session-state counts so local dev still works.
-    """
+    """Load global stats from Supabase; fall back to session counts for local dev."""
     try:
         from database.database_manager import db_get_global_stats, is_configured
         if is_configured():
@@ -252,18 +252,18 @@ def _load_global_stats() -> dict:
     except Exception:
         pass
 
-    # Local fallback — count from current session only
+    # Local fallback
     reports = st.session_state.get("audit_history", [])
     fw_counts: dict = {}
     date_counts: dict = {}
     for r in reports:
-        fw = getattr(r, "framework_targeted", "Unknown")
+        fw = _get_field(r, "framework_targeted") or _get_field(r, "framework") or "Unknown"
         fw_counts[fw] = fw_counts.get(fw, 0) + 1
-        ts = getattr(r, "generated_timestamp", "")[:10]
+        ts = str(_get_field(r, "generated_timestamp") or _get_field(r, "created_at") or "")[:10]
         if ts:
             date_counts[ts] = date_counts.get(ts, 0) + 1
 
-    scores = [getattr(r, "compliance_score", 0) for r in reports]
+    scores = [_get_field(r, "compliance_score", 0) or 0 for r in reports]
     avg    = round(sum(scores) / len(scores), 1) if scores else 0.0
 
     return {
@@ -281,7 +281,6 @@ def _load_global_stats() -> dict:
 
 
 def _render_global_framework_bar(audits_by_framework: dict) -> None:
-    """Horizontal bar chart: audits per framework across the whole platform."""
     try:
         import plotly.graph_objects as go
 
@@ -291,9 +290,7 @@ def _render_global_framework_bar(audits_by_framework: dict) -> None:
 
         frameworks = list(audits_by_framework.keys())
         counts     = [audits_by_framework[fw] for fw in frameworks]
-
-        # Colour each bar by framework
-        palette = {
+        palette    = {
             "GDPR":      "#3b7ff5",
             "HIPAA":     "#00e5a0",
             "ISO 27001": "#f5a623",
@@ -303,30 +300,22 @@ def _render_global_framework_bar(audits_by_framework: dict) -> None:
         colors = [palette.get(fw, "#8a9bbc") for fw in frameworks]
 
         fig = go.Figure(go.Bar(
-            x=counts,
-            y=frameworks,
-            orientation="h",
+            x=counts, y=frameworks, orientation="h",
             marker=dict(color=colors, opacity=0.9),
-            text=counts,
-            textposition="outside",
+            text=counts, textposition="outside",
             textfont=dict(color="#e8edf8", size=12),
         ))
         fig.update_layout(**_layout(
-            height=260,
-            xaxis_title="Number of Audits",
-            yaxis_title="",
-            showlegend=False,
-            margin=dict(l=10, r=40, t=10, b=10),
+            height=260, xaxis_title="Number of Audits", yaxis_title="",
+            showlegend=False, margin=dict(l=10, r=40, t=10, b=10),
         ))
         st.plotly_chart(fig, width='stretch')
-
     except ImportError:
         for fw, cnt in audits_by_framework.items():
             st.metric(fw, cnt)
 
 
 def _render_global_trend(audits_over_time: list) -> None:
-    """Line chart: total audits run per day across the whole platform."""
     try:
         import plotly.graph_objects as go
 
@@ -337,7 +326,6 @@ def _render_global_trend(audits_over_time: list) -> None:
         dates  = [item["date"]  for item in audits_over_time]
         counts = [item["count"] for item in audits_over_time]
 
-        # Cumulative line
         cumulative = []
         total = 0
         for c in counts:
@@ -345,46 +333,28 @@ def _render_global_trend(audits_over_time: list) -> None:
             cumulative.append(total)
 
         fig = go.Figure()
-
-        # Daily bars
         fig.add_trace(go.Bar(
-            x=dates, y=counts,
-            name="Daily Audits",
+            x=dates, y=counts, name="Daily Audits",
             marker=dict(color="rgba(59,127,245,0.4)"),
         ))
-
-        # Cumulative line
         fig.add_trace(go.Scatter(
-            x=dates, y=cumulative,
-            name="Cumulative",
+            x=dates, y=cumulative, name="Cumulative",
             mode="lines+markers",
             line=dict(color="#00e5a0", width=2.5),
-            marker=dict(size=6),
-            yaxis="y2",
+            marker=dict(size=6), yaxis="y2",
         ))
-
         fig.update_layout(**_layout(
-            height=260,
-            showlegend=True,
-            legend=dict(
-                orientation="h", yanchor="bottom", y=1.02,
-                xanchor="right", x=1,
-                font=dict(color="#8a9bbc", size=11),
-            ),
+            height=260, showlegend=True,
+            legend=dict(orientation="h", yanchor="bottom", y=1.02,
+                        xanchor="right", x=1, font=dict(color="#8a9bbc", size=11)),
             xaxis_title="",
             yaxis=dict(title="Daily", side="left"),
-            yaxis2=dict(
-                title="Cumulative",
-                overlaying="y",
-                side="right",
-                showgrid=False,
-                tickfont=dict(color="#00e5a0"),
-            ),
+            yaxis2=dict(title="Cumulative", overlaying="y", side="right",
+                        showgrid=False, tickfont=dict(color="#00e5a0")),
             margin=dict(l=10, r=50, t=30, b=10),
             barmode="overlay",
         ))
         st.plotly_chart(fig, width='stretch')
-
     except ImportError:
         for item in audits_over_time[-5:]:
             st.write(f"{item['date']}: {item['count']} audit(s)")
@@ -397,7 +367,7 @@ def _render_global_trend(audits_over_time: list) -> None:
 def _avg_score(reports: list) -> float:
     if not reports:
         return 0.0
-    scores = [getattr(r, "compliance_score", 0) for r in reports]
+    scores = [_get_field(r, "compliance_score", 0) or 0 for r in reports]
     return round(sum(scores) / len(scores), 1)
 
 
@@ -444,7 +414,8 @@ def _render_severity_donut(findings: list) -> None:
 
         counts = {"Critical": 0, "High": 0, "Medium": 0, "Low": 0}
         for f in findings:
-            sev = getattr(f, "severity", "Medium")
+            # findings may be dicts or objects
+            sev = (f.get("severity") if isinstance(f, dict) else getattr(f, "severity", "Medium")) or "Medium"
             counts[sev] = counts.get(sev, 0) + 1
 
         labels = [k for k, v in counts.items() if v > 0]
@@ -456,8 +427,7 @@ def _render_severity_donut(findings: list) -> None:
             return
 
         fig = go.Figure(go.Pie(
-            labels=labels, values=values,
-            hole=0.65,
+            labels=labels, values=values, hole=0.65,
             marker=dict(colors=colors, line=dict(color="#0a0e1a", width=2)),
             textinfo="label+value",
             textfont=dict(family="DM Sans", size=11, color="#e8edf8"),
@@ -479,9 +449,9 @@ def _render_framework_radar() -> None:
         fw_scores = {fw: [] for fw in labels}
 
         for r in reports:
-            fw = getattr(r, "framework_targeted", "")
+            fw = _get_field(r, "framework_targeted") or _get_field(r, "framework") or ""
             if fw in fw_scores:
-                fw_scores[fw].append(getattr(r, "compliance_score", 0))
+                fw_scores[fw].append(_get_field(r, "compliance_score", 0) or 0)
 
         values = [
             round(sum(v) / len(v), 1) if v else 50.0
@@ -520,23 +490,20 @@ def _render_trend_chart(reports: list) -> None:
             st.info("Run audits to see the compliance trend.")
             return
 
-        dates  = [getattr(r, "generated_timestamp", "")[:10] for r in reports]
-        scores = [getattr(r, "compliance_score", 0) for r in reports]
+        dates  = [str(_get_field(r, "generated_timestamp") or _get_field(r, "created_at") or "")[:10] for r in reports]
+        scores = [_get_field(r, "compliance_score", 0) or 0 for r in reports]
 
         fig = go.Figure()
         fig.add_trace(go.Scatter(
             x=dates, y=scores, mode="lines+markers",
             line=dict(color="#3b7ff5", width=2.5),
             marker=dict(color="#3b7ff5", size=7),
-            fill="tozeroy",
-            fillcolor="rgba(59,127,245,0.08)",
+            fill="tozeroy", fillcolor="rgba(59,127,245,0.08)",
             name="Score",
         ))
         fig.update_layout(**_layout(
-            height=240,
-            xaxis_title="", yaxis_title="Score (%)",
-            yaxis=dict(range=[0, 105]),
-            showlegend=False,
+            height=240, xaxis_title="", yaxis_title="Score (%)",
+            yaxis=dict(range=[0, 105]), showlegend=False,
         ))
         st.plotly_chart(fig, width='stretch')
     except ImportError:
@@ -553,7 +520,7 @@ def _render_dept_chart(findings: list) -> None:
 
         dept_counts: dict = {}
         for f in findings:
-            dept = getattr(f, "department", "General")
+            dept = (f.get("department") if isinstance(f, dict) else getattr(f, "department", "General")) or "General"
             dept_counts[dept] = dept_counts.get(dept, 0) + 1
 
         depts  = list(dept_counts.keys())[:8]
@@ -565,10 +532,8 @@ def _render_dept_chart(findings: list) -> None:
             text=counts, textposition="outside",
         ))
         fig.update_layout(**_layout(
-            height=240,
-            xaxis_title="Findings", yaxis_title="",
-            showlegend=False,
-            margin=dict(l=10, r=30, t=10, b=10),
+            height=240, xaxis_title="Findings", yaxis_title="",
+            showlegend=False, margin=dict(l=10, r=30, t=10, b=10),
         ))
         st.plotly_chart(fig, width='stretch')
     except ImportError:
