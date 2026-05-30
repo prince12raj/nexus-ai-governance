@@ -64,19 +64,24 @@ def is_configured() -> bool:
 # ══════════════════════════════════════════════════════════════════════════════
 
 def db_get_user(username: str) -> Optional[Dict[str, Any]]:
-    """Get a user by username from Supabase."""
+    """Get a user by username from Supabase — includes password_hash for login."""
     client = _get_client()
     if not client:
         return None
     try:
-        result = client.table("users").select("*").eq(
-            "username", username.lower()
-        ).execute()
+        result = client.table("users").select(
+            "username, password_hash, role, name, email, avatar, "
+            "department, permissions, registered_at, last_login, is_active"
+        ).eq("username", username.lower()).execute()
+
         if result.data:
             user = result.data[0]
-            # Parse JSON fields
+            # Parse JSON permissions field
             if isinstance(user.get("permissions"), str):
-                user["permissions"] = json.loads(user["permissions"])
+                try:
+                    user["permissions"] = json.loads(user["permissions"])
+                except Exception:
+                    user["permissions"] = ["read"]
             return user
         return None
     except Exception as exc:

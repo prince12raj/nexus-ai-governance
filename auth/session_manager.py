@@ -54,10 +54,14 @@ def login(username: str, password: str) -> bool:
         logger.warning("Login failed — unknown user: %s", username)
         return False
 
-    # Block demo-only accounts (those without a registered_at timestamp)
-    # Only users who registered via the registration page can log in
+    # Block demo-only accounts
     if not user.get("registered_at"):
-        logger.warning("Login blocked — demo account not allowed: %s", username)
+        logger.warning("Login blocked — demo account: %s", username)
+        return False
+
+    # Guard against missing password_hash
+    if not user.get("password_hash"):
+        logger.error("Login failed — no password_hash for user: %s", username)
         return False
 
     if not verify_password(password, user["password_hash"]):

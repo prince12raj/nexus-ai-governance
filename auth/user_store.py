@@ -97,12 +97,17 @@ def get_user(username: str) -> Optional[Dict[str, Any]]:
     """Get full user data including password_hash for login verification."""
     uname = username.strip().lower()
 
-    # Try Supabase first
+    # Try Supabase first — uses explicit select with password_hash
     if _use_supabase():
         try:
             from database.database_manager import db_get_user
             user = db_get_user(uname)
             if user:
+                if not user.get("password_hash"):
+                    logger.warning(
+                        "User found in Supabase but no password_hash: %s", uname
+                    )
+                    return None
                 return user
         except Exception as exc:
             logger.warning("Supabase get_user failed: %s", exc)
