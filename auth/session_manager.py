@@ -43,12 +43,16 @@ def login(username: str, password: str) -> bool:
     Returns:
         True if credentials are valid, False otherwise.
     """
-    from auth.user_store import load_all_users, update_last_login
+    # ── FIX: use get_user() instead of load_all_users() ──────────────────────
+    # load_all_users() calls db_get_all_users() which deliberately omits
+    # password_hash from the SELECT query → hash is always None → login fails.
+    # get_user() calls db_get_user() which explicitly selects password_hash.
+    # ─────────────────────────────────────────────────────────────────────────
+    from auth.user_store import get_user, update_last_login
     from auth.security import verify_password
 
-    all_users  = load_all_users()
-    uname      = username.strip().lower()
-    user       = all_users.get(uname)
+    uname = username.strip().lower()
+    user  = get_user(uname)
 
     if not user:
         logger.warning("Login failed — unknown user: %s", username)
@@ -190,12 +194,11 @@ def get_current_user() -> Optional[Dict[str, Any]]:
     if cached:
         return cached
 
-    # Fallback: look up from USERS_DB
+    # Fallback: look up from user store using get_user() for full data
     username = st.session_state.get("username")
     if username:
-        from auth.user_store import load_all_users
-        all_users = load_all_users()
-        user = all_users.get(username)
+        from auth.user_store import get_user
+        user = get_user(username)
         if user:
             st.session_state["current_user"] = user
             return user
