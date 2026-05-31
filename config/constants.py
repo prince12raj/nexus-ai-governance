@@ -7,7 +7,6 @@ For environment-driven values (API keys, paths, flags) use config/settings.py.
 Import via the config package:
     from config import APP_NAME, SUPPORTED_FRAMEWORKS, SEVERITY_COLORS
 """
-from __future__ import annotations
 
 # ══════════════════════════════════════════════════════════════════════════════
 # APP IDENTITY

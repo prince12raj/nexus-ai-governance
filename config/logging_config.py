@@ -13,7 +13,6 @@ Usage anywhere in the project:
     logger = get_logger("nexus.compliance")
     logger.info("Audit started | framework=%s", framework)
 """
-from __future__ import annotations
 
 import logging
 import sys
