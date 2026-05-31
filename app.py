@@ -284,7 +284,11 @@ def main() -> None:
     # ── 5. Vector store boot ───────────────────────────────────────────────────
     _boot_vector_store()
 
-    # ── 6. Auth gate ───────────────────────────────────────────────────────────
+    # ── 6. Restore session from cookie (handles page refresh) ─────────────────
+    from auth.session_manager import restore_session_from_cookie
+    restore_session_from_cookie()
+
+    # ── 7. Auth gate ───────────────────────────────────────────────────────────
     from auth.session_manager import is_logged_in
     if not is_logged_in():
         # Route between login and register pages
@@ -301,10 +305,10 @@ def main() -> None:
             render_login_page()
         return
 
-    # ── 7. Build router ────────────────────────────────────────────────────────
+    # ── 8. Build router ────────────────────────────────────────────────────────
     PAGE_ROUTER = _build_page_router()
 
-    # ── 8. Page permission check ───────────────────────────────────────────────
+    # ── 9. Page permission check ───────────────────────────────────────────────
     page = st.session_state.get("current_page", "Dashboard")
     if page not in PAGE_ROUTER:
         page = "Dashboard"

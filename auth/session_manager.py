@@ -105,6 +105,13 @@ def login(username: str, password: str) -> bool:
     except Exception:
         pass
 
+    # Save session cookie so refresh doesn't log user out
+    try:
+        from auth.cookie_manager import save_session_cookie
+        save_session_cookie(uname)
+    except Exception as exc:
+        logger.warning("Cookie save failed: %s", exc)
+
     logger.info(
         "Login success | user=%s | role=%s | ip=client",
         uname, user.get("role", "unknown"),
@@ -122,6 +129,13 @@ def logout() -> None:
     username = st.session_state.get("username", "unknown")
     logger.info("Logout | user=%s", username)
 
+    # Clear browser cookie
+    try:
+        from auth.cookie_manager import clear_session_cookie
+        clear_session_cookie()
+    except Exception:
+        pass
+
     # Keys to clear on logout
     auth_keys = [
         "authenticated", "username", "current_user",
@@ -131,6 +145,66 @@ def logout() -> None:
     ]
     for key in auth_keys:
         st.session_state.pop(key, None)
+
+
+def restore_session_from_cookie() -> bool:
+    """
+    Try to restore a session from the browser cookie on page refresh.
+
+    Called at the top of app.py before the auth gate check.
+    If a valid cookie exists, silently re-authenticates the user
+    so they don't need to log in again after refreshing.
+
+    Returns:
+        True if session was restored, False otherwise.
+    """
+    # Already authenticated — nothing to restore
+    if st.session_state.get("authenticated"):
+        return True
+
+    try:
+        from auth.cookie_manager import get_session_from_cookie
+        username = get_session_from_cookie()
+        if not username:
+            return False
+
+        # Fetch user from store
+        from auth.user_store import get_user
+        user = get_user(username)
+        if not user or not user.get("registered_at"):
+            return False
+
+        # Restore session state
+        now = time.time()
+        st.session_state.update({
+            "authenticated":  True,
+            "username":       username,
+            "current_user":   user,
+            "login_time":     now,
+            "last_activity":  now,
+            "login_attempts": 0,
+            "lockout_until":  0,
+        })
+
+        # Load user's data from DB
+        try:
+            from auth.db_session import load_user_audits, load_user_documents
+            db_audits = load_user_audits(username)
+            if db_audits:
+                st.session_state["audit_history"] = db_audits
+
+            db_docs = load_user_documents(username)
+            if db_docs:
+                st.session_state["uploaded_docs"] = db_docs
+        except Exception:
+            pass
+
+        logger.info("Session restored from cookie | user=%s", username)
+        return True
+
+    except Exception as exc:
+        logger.warning("Cookie restore failed: %s", exc)
+        return False
 
 
 def is_logged_in() -> bool:

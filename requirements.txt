@@ -46,3 +46,6 @@ requests>=2.31.0
 
 # ── Database (Supabase) ────────────────────────────────
 supabase>=2.0.0
+
+# ── Session Persistence ───────────────────────────────
+extra-streamlit-components>=0.1.60
