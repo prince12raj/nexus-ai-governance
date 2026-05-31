@@ -79,12 +79,11 @@ def _init_session_state() -> None:
 
 def _boot_vector_store() -> None:
     """
-    Initialise the vector store on first load and store in session_state.
-    Uses the backend configured in .env (memory / faiss / chroma).
-    Pre-seeds with REGULATIONS_CORPUS if the store is empty.
+    Initialise the vector store on first load only.
+    Uses st.session_state flag to prevent re-running on every page interaction.
     """
     if st.session_state.get("vector_db_initialized"):
-        return
+        return  # ← already done this session — skip
 
     from config.settings import settings
 
