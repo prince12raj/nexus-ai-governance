@@ -6,7 +6,6 @@ Saves uploaded documents to:
   2. Supabase DB    — persists across restarts (per user)
   3. Vector store   — for RAG retrieval
 """
-from __future__ import annotations
 
 import uuid
 

@@ -1,7 +1,6 @@
 """
 ui/dashboard.py — Main dashboard page for Nexus AI Governance Platform.
 """
-from __future__ import annotations
 
 import datetime
 
