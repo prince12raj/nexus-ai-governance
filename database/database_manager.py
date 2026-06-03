@@ -430,3 +430,27 @@ def db_get_user_documents(username: str) -> List[Dict[str, Any]]:
     except Exception as exc:
         logger.error("db_get_user_documents failed: %s", exc)
         return []
+
+
+def db_get_document_text(username: str, doc_name: str) -> str:
+    """
+    Fetch the full text_content for a specific document by name and username.
+    Used by the audit page when a doc was loaded from DB without full text.
+
+    Returns:
+        The stored text_content string, or "" if not found.
+    """
+    client = _get_client()
+    if not client:
+        return ""
+    try:
+        result = client.table("uploaded_documents").select(
+            "text_content"
+        ).eq("username", username.lower()).eq("name", doc_name).limit(1).execute()
+
+        if result.data:
+            return result.data[0].get("text_content") or ""
+        return ""
+    except Exception as exc:
+        logger.error("db_get_document_text failed: %s", exc)
+        return ""

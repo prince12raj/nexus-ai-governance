@@ -57,21 +57,37 @@ def render_compliance_auditor() -> None:
         )
         st.selectbox("LLM Provider", [provider_hint], disabled=True)
 
-    # ── FIX: docs from DB have no "text" key — they use "text_content".
-    # Fall back through all possible key names, then empty string.
+    # Resolve document text — try session first, then DB text_content,
+    # then fetch full text from Supabase if still missing.
     selected = next((d for d in docs if d.get("name") == selected_doc), {})
     doc_text = (
-        selected.get("text")         # session-uploaded docs
-        or selected.get("text_content")  # DB-loaded docs
+        selected.get("text")             # session-uploaded (full text)
+        or selected.get("text_content")  # already fetched from DB
         or ""
     )
 
-    # ── If doc came from DB it may have no text at all (we only store 10k chars).
-    # Show a warning so the user knows to re-upload for full analysis.
-    if not doc_text and selected:
+    if not doc_text and selected_doc:
+        # Doc was loaded from DB as metadata-only — fetch text_content now
+        username = st.session_state.get("username", "")
+        if username:
+            with st.spinner("Loading document from database…"):
+                try:
+                    from database.database_manager import db_get_document_text
+                    doc_text = db_get_document_text(username, selected_doc)
+                    # Cache it back into session so we don't fetch again
+                    if doc_text:
+                        for d in docs:
+                            if d.get("name") == selected_doc:
+                                d["text"] = doc_text
+                                break
+                except Exception as exc:
+                    st.error(f"Failed to load document text: {exc}")
+                    return
+
+    if not doc_text:
         st.warning(
-            "⚠️ This document was loaded from the database without full text. "
-            "Please re-upload the file to run a fresh audit.",
+            "⚠️ No text content found for this document. "
+            "Please re-upload the file.",
             icon="⚠️",
         )
         return
