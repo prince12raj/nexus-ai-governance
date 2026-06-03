@@ -13,6 +13,16 @@ from config.constants import SUPPORTED_FRAMEWORKS
 from ui.dashboard import render_page_header, render_kpi_card
 
 
+def _f(r, field: str, default=None):
+    """
+    Safely read a field from either a dict (Supabase row) or an object (AuditReport/Finding).
+    Handles field name aliases between DB columns and object attributes.
+    """
+    if isinstance(r, dict):
+        return r.get(field, default)
+    return getattr(r, field, default)
+
+
 # ══════════════════════════════════════════════════════════════════════════════
 # COMPLIANCE AUDITOR PAGE
 # ══════════════════════════════════════════════════════════════════════════════
@@ -34,7 +44,7 @@ def render_compliance_auditor() -> None:
     # ── Controls ───────────────────────────────────────────────────────────────
     col_doc, col_fw, col_model = st.columns(3)
     with col_doc:
-        doc_names    = [d["name"] for d in docs]
+        doc_names    = [d.get("name", "") for d in docs]
         selected_doc = st.selectbox("Select document", doc_names)
     with col_fw:
         framework = st.selectbox("Compliance framework", SUPPORTED_FRAMEWORKS)
@@ -47,7 +57,24 @@ def render_compliance_auditor() -> None:
         )
         st.selectbox("LLM Provider", [provider_hint], disabled=True)
 
-    doc_text = next((d["text"] for d in docs if d["name"] == selected_doc), "")
+    # ── FIX: docs from DB have no "text" key — they use "text_content".
+    # Fall back through all possible key names, then empty string.
+    selected = next((d for d in docs if d.get("name") == selected_doc), {})
+    doc_text = (
+        selected.get("text")         # session-uploaded docs
+        or selected.get("text_content")  # DB-loaded docs
+        or ""
+    )
+
+    # ── If doc came from DB it may have no text at all (we only store 10k chars).
+    # Show a warning so the user knows to re-upload for full analysis.
+    if not doc_text and selected:
+        st.warning(
+            "⚠️ This document was loaded from the database without full text. "
+            "Please re-upload the file to run a fresh audit.",
+            icon="⚠️",
+        )
+        return
 
     # ── Pre-scan alerts ────────────────────────────────────────────────────────
     _render_prescan_alerts(doc_text)
@@ -95,7 +122,6 @@ def _run_audit_ui(doc_text: str, doc_name: str, framework: str) -> None:
     bar_ph      = st.empty()
 
     for idx in range(len(agents) + 1):
-        # Build agent rows HTML
         rows = ""
         for i, (icon, name, status) in enumerate(agents):
             if i < idx:
@@ -135,10 +161,7 @@ def _run_audit_ui(doc_text: str, doc_name: str, framework: str) -> None:
     findings = result.get("findings", [])
     score    = result.get("score", 0.0)
 
-    # Save to history
     _save_audit_report(doc_name, framework, findings, score)
-
-    # Display results
     _render_audit_results(findings, score, framework, result)
 
 
@@ -157,33 +180,39 @@ def _render_audit_results(findings, score, framework, result):
     </div>
     """, unsafe_allow_html=True)
 
-    # KPI row
     from collections import Counter
-    sev_counts = Counter(getattr(f, "severity", "Medium") for f in findings)
+    # findings may be dicts or objects
+    sev_counts = Counter(_f(f, "severity", "Medium") for f in findings)
+
     c1, c2, c3, c4 = st.columns(4)
-    with c1: render_kpi_card("Score", f"{score:.0f}%", grade, "neutral", "🛡️", "blue")
-    with c2: render_kpi_card("Critical", str(sev_counts.get("Critical", 0)), "findings", "down" if sev_counts.get("Critical") else "up", "🔴", "red")
-    with c3: render_kpi_card("High", str(sev_counts.get("High", 0)), "findings", "neutral", "🟠", "yellow")
-    with c4: render_kpi_card("Medium/Low", str(sev_counts.get("Medium", 0) + sev_counts.get("Low", 0)), "findings", "neutral", "🔵", "green")
+    with c1: render_kpi_card("Score",       f"{score:.0f}%", grade, "neutral", "🛡️", "blue")
+    with c2: render_kpi_card("Critical",    str(sev_counts.get("Critical", 0)), "findings", "down" if sev_counts.get("Critical") else "up", "🔴", "red")
+    with c3: render_kpi_card("High",        str(sev_counts.get("High", 0)),     "findings", "neutral", "🟠", "yellow")
+    with c4: render_kpi_card("Medium/Low",  str(sev_counts.get("Medium", 0) + sev_counts.get("Low", 0)), "findings", "neutral", "🔵", "green")
 
     if not findings:
         st.success("🎉 No compliance violations found. This policy appears to be fully compliant.")
         return
 
-    # Findings
     st.markdown('<div class="section-header">📋 Compliance Findings</div>', unsafe_allow_html=True)
 
     for i, f in enumerate(findings):
-        sev        = getattr(f, "severity", "Medium").lower()
-        legal_ref  = getattr(f, "legal_reference", "")
-        violated   = getattr(f, "violated_string", "")
-        explanation= getattr(f, "explanation", "")
-        corrected  = getattr(f, "corrected_version", "")
-        dept       = getattr(f, "department", "")
-        confidence = getattr(f, "confidence_score", 0)
-        steps      = getattr(f, "remediation_steps", [])
+        sev         = (_f(f, "severity",          "Medium") or "Medium").lower()
+        legal_ref   = _f(f, "legal_reference",    "") or ""
+        violated    = _f(f, "violated_string",    "") or ""
+        explanation = _f(f, "explanation",        "") or ""
+        corrected   = _f(f, "corrected_version",  "") or ""
+        dept        = _f(f, "department",         "") or ""
+        confidence  = _f(f, "confidence_score",   0)  or 0
+        steps       = _f(f, "remediation_steps",  []) or []
 
-        with st.expander(f"{'🔴' if sev=='critical' else '🟠' if sev=='high' else '🔵' if sev=='medium' else '🟢'} [{sev.upper()}] {legal_ref}", expanded=(i == 0)):
+        icon = (
+            "🔴" if sev == "critical" else
+            "🟠" if sev == "high" else
+            "🔵" if sev == "medium" else "🟢"
+        )
+
+        with st.expander(f"{icon} [{sev.upper()}] {legal_ref}", expanded=(i == 0)):
             st.markdown(f"""
             <div class="finding-card {sev}">
               <div style="display:flex;justify-content:space-between;margin-bottom:0.8rem;">
@@ -216,14 +245,19 @@ def _render_audit_results(findings, score, framework, result):
                 for j, step in enumerate(steps, 1):
                     st.markdown(f"{j}. {step}")
 
-    # Executive summary button
     if st.button("📊 Generate Executive Summary", type="secondary"):
         with st.spinner("Generating board-level summary…"):
             from llm.router import route_executive_summary
-            findings_dicts = [
-                f.model_dump() if hasattr(f, "model_dump") else f.dict()
-                for f in findings
-            ]
+            findings_dicts = []
+            for f in findings:
+                if isinstance(f, dict):
+                    findings_dicts.append(f)
+                elif hasattr(f, "model_dump"):
+                    findings_dicts.append(f.model_dump())
+                elif hasattr(f, "dict"):
+                    findings_dicts.append(f.dict())
+                else:
+                    findings_dicts.append({"severity": _f(f, "severity", "")})
             summary = route_executive_summary(findings_dicts, framework, "Policy Document")
         st.markdown(f"""
         <div class="exec-summary">
@@ -237,33 +271,30 @@ def _save_audit_report(doc_name, framework, findings, score):
     """Save audit report to session history AND Supabase DB."""
     try:
         from models.audit_models import AuditReport
-        import datetime
 
-        critical = sum(1 for f in findings if getattr(f, "severity", "") == "Critical")
-        high     = sum(1 for f in findings if getattr(f, "severity", "") == "High")
-        medium   = sum(1 for f in findings if getattr(f, "severity", "") == "Medium")
-        low      = sum(1 for f in findings if getattr(f, "severity", "") == "Low")
+        critical = sum(1 for f in findings if _f(f, "severity", "") == "Critical")
+        high     = sum(1 for f in findings if _f(f, "severity", "") == "High")
+        medium   = sum(1 for f in findings if _f(f, "severity", "") == "Medium")
+        low      = sum(1 for f in findings if _f(f, "severity", "") == "Low")
 
         report = AuditReport(
-            compliance_score=score,
-            executive_summary="",
-            framework_targeted=framework,
-            document_name=doc_name,
-            total_findings=len(findings),
-            critical_findings=critical,
-            high_findings=high,
-            medium_findings=medium,
-            low_findings=low,
-            generated_timestamp=datetime.datetime.now().isoformat(),
-            findings=findings,
+            compliance_score     = score,
+            executive_summary    = "",
+            framework_targeted   = framework,
+            document_name        = doc_name,
+            total_findings       = len(findings),
+            critical_findings    = critical,
+            high_findings        = high,
+            medium_findings      = medium,
+            low_findings         = low,
+            generated_timestamp  = datetime.datetime.now().isoformat(),
+            findings             = findings,
         )
 
-        # Save to session state
         history = st.session_state.setdefault("audit_history", [])
         history.append(report)
         st.session_state["current_report"] = report
 
-        # Save to Supabase DB (per user — other users never see this)
         username = st.session_state.get("username", "")
         if username:
             from auth.db_session import save_audit_to_db
@@ -297,25 +328,28 @@ def render_audit_reports() -> None:
         return
 
     # ── Summary KPIs ───────────────────────────────────────────────────────────
-    avg_score = round(sum(getattr(r, "compliance_score", 0) for r in reports) / len(reports), 1)
+    avg_score = round(
+        sum(_f(r, "compliance_score", 0) or 0 for r in reports) / len(reports), 1
+    )
+    frameworks_used = {
+        _f(r, "framework_targeted") or _f(r, "framework") or ""
+        for r in reports
+    }
     c1, c2, c3, c4 = st.columns(4)
-    with c1: render_kpi_card("Total Reports", str(len(reports)), "All time", "neutral", "📋", "blue")
-    with c2: render_kpi_card("Avg Score", f"{avg_score}%", "Across all audits", "neutral", "📊", "green")
-    with c3: render_kpi_card("Frameworks", str(len({getattr(r, 'framework_targeted', '') for r in reports})), "Covered", "neutral", "🎯", "yellow")
-    with c4: render_kpi_card("Critical Findings", str(sum(getattr(r, "critical_findings", 0) for r in reports)), "Total", "neutral", "🚨", "red")
+    with c1: render_kpi_card("Total Reports",    str(len(reports)),          "All time",        "neutral", "📋", "blue")
+    with c2: render_kpi_card("Avg Score",        f"{avg_score}%",            "Across all",      "neutral", "📊", "green")
+    with c3: render_kpi_card("Frameworks",       str(len(frameworks_used)),  "Covered",         "neutral", "🎯", "yellow")
+    with c4: render_kpi_card("Critical Findings",str(sum(_f(r, "critical_findings", 0) or 0 for r in reports)), "Total", "neutral", "🚨", "red")
 
     st.markdown("")
-
-    # ── Report list ────────────────────────────────────────────────────────────
     st.markdown('<div class="section-header">📑 Report History</div>', unsafe_allow_html=True)
 
     for i, r in enumerate(reversed(reports)):
-        score = getattr(r, "compliance_score", 0)
-        fw    = getattr(r, "framework_targeted", "")
-        ts    = getattr(r, "generated_timestamp", "")[:19]
-        total = getattr(r, "total_findings", 0)
-        crit  = getattr(r, "critical_findings", 0)
-        color = score_color(score)
+        score = _f(r, "compliance_score", 0) or 0
+        fw    = _f(r, "framework_targeted") or _f(r, "framework") or ""
+        ts    = str(_f(r, "generated_timestamp") or _f(r, "created_at") or "")[:19]
+        total = _f(r, "total_findings", 0) or 0
+        crit  = _f(r, "critical_findings", 0) or 0
         grade = grade_score(score)
 
         with st.expander(
@@ -323,32 +357,35 @@ def render_audit_reports() -> None:
             expanded=(i == 0),
         ):
             c_score, c_fw, c_total, c_crit = st.columns(4)
-            with c_score:
-                st.metric("Score", f"{score:.0f}%")
-            with c_fw:
-                st.metric("Framework", fw)
-            with c_total:
-                st.metric("Findings", total)
-            with c_crit:
-                st.metric("Critical", crit)
+            with c_score: st.metric("Score",     f"{score:.0f}%")
+            with c_fw:    st.metric("Framework", fw)
+            with c_total: st.metric("Findings",  total)
+            with c_crit:  st.metric("Critical",  crit)
 
-            findings = getattr(r, "findings", [])
+            findings = _f(r, "findings") or _f(r, "findings_json") or []
             if findings:
                 st.markdown("**Top Findings:**")
                 for f in findings[:3]:
-                    sev = getattr(f, "severity", "")
-                    ref = getattr(f, "legal_reference", "")
+                    sev = _f(f, "severity", "") or ""
+                    ref = _f(f, "legal_reference", "") or ""
                     st.markdown(
                         f"- <span class='severity-badge {sev.lower()}'>{sev}</span> {ref}",
                         unsafe_allow_html=True,
                     )
 
-            col_ex, col_cl = st.columns([1, 4])
+            col_ex, _ = st.columns([1, 4])
             with col_ex:
                 if st.button("📥 Export JSON", key=f"export_{i}"):
                     import json
                     try:
-                        data = r.model_dump() if hasattr(r, "model_dump") else r.dict()
+                        if isinstance(r, dict):
+                            data = r
+                        elif hasattr(r, "model_dump"):
+                            data = r.model_dump()
+                        elif hasattr(r, "dict"):
+                            data = r.dict()
+                        else:
+                            data = {}
                         st.download_button(
                             "💾 Download",
                             data=json.dumps(data, indent=2, default=str),
