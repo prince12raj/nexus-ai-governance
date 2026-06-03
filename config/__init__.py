@@ -1,5 +1,9 @@
 """
 config/__init__.py — Configuration package for Nexus AI Governance Platform.
+
+NOTE: No side-effects at import time (no setup_logging, no debug calls).
+      setup_logging() is called once in app.py main() instead.
+      This prevents KeyError: 'config.settings' circular import crashes.
 """
 
 # ── Core settings ─────────────────────────────────────────────────────────────
@@ -50,10 +54,11 @@ from config.constants import (
     PLOTLY_DARK,
 )
 
-# ── Initialise logging ────────────────────────────────────────────────────────
-setup_logging(level=settings.LOG_LEVEL)
-
-_logger = get_logger("nexus.config")
+# ── NOTE: setup_logging() is intentionally NOT called here.
+# Call it once in app.py main() after all imports are complete:
+#
+#   from config import setup_logging, settings
+#   setup_logging(level=settings.LOG_LEVEL)
 
 
 # ── Provider detection helper ─────────────────────────────────────────────────
@@ -64,15 +69,6 @@ def _detect_provider() -> str:
     if settings.HUGGINGFACE_API_KEY:
         return "huggingface"
     return "ollama/mock"
-
-
-_logger.debug(
-    "Config loaded | app=%s v%s | env=%s | llm_provider=%s",
-    APP_NAME,
-    APP_VERSION,
-    settings.APP_ENV,
-    _detect_provider(),
-)
 
 
 # ── Runtime config summary ────────────────────────────────────────────────────
