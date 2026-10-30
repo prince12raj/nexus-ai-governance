@@ -168,7 +168,7 @@ def _run_audit_ui(doc_text: str, doc_name: str, framework: str) -> None:
     # ── Actual audit ───────────────────────────────────────────────────────────
     with st.spinner("Finalising audit report…"):
         from compliance.compliance_engine import run_audit
-        result = run_audit(policy_text=doc_text, framework=framework)
+        result = run_audit(policy_text=doc_text, framework=framework, doc_name=doc_name)
 
     if result.get("error"):
         st.error(result["error"])

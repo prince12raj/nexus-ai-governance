@@ -79,6 +79,14 @@ class Settings:
     OLLAMA_MODEL:       str = _get("OLLAMA_MODEL", "llama3")
     OLLAMA_EMBED_MODEL: str = _get("OLLAMA_EMBED_MODEL", "nomic-embed-text")
 
+    # ── 3b. Email alerts (SMTP) ───────────────────────────────────────────────
+    SMTP_HOST:     str = _get("SMTP_HOST", "")
+    SMTP_PORT:     str = _get("SMTP_PORT", "587")          # 587 STARTTLS | 465 SSL
+    SMTP_USER:     str = _get("SMTP_USER", "")
+    SMTP_PASSWORD: str = _get("SMTP_PASSWORD", "")
+    SMTP_FROM:     str = _get("SMTP_FROM", "")             # defaults to SMTP_USER
+    ALERT_EMAIL:   str = _get("ALERT_EMAIL", "")           # default recipient(s)
+
     # ── 4. Application ────────────────────────────────────────────────────────
     APP_ENV:        str = _get("APP_ENV", "development")   # development | staging | production
     APP_NAME:       str = _get("APP_NAME", "Nexus AI Governance Platform")
@@ -202,6 +210,12 @@ class Settings:
             "OLLAMA_HOST":               self.OLLAMA_HOST,
             "OLLAMA_MODEL":              self.OLLAMA_MODEL,
             "OLLAMA_EMBED_MODEL":        self.OLLAMA_EMBED_MODEL,
+            # Email alerts
+            "SMTP_HOST":                 self.SMTP_HOST,
+            "SMTP_PORT":                 self.SMTP_PORT,
+            "SMTP_USER":                 self.SMTP_USER,
+            "SMTP_PASSWORD":             self.masked_key(self.SMTP_PASSWORD),
+            "ALERT_EMAIL":               self.ALERT_EMAIL,
             # App
             "APP_ENV":                   self.APP_ENV,
             "APP_NAME":                  self.APP_NAME,

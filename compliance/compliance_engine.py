@@ -32,6 +32,22 @@ logger = get_logger("nexus.compliance.engine")
 # MAIN AUDIT PIPELINE
 # ══════════════════════════════════════════════════════════════════════════════
 
+
+def _send_alerts(result: Dict[str, Any], framework: str, doc_name: str) -> None:
+    """Fire email alerts (Critical findings / injection). Never raises."""
+    try:
+        from alerts.email_alerts import notify_audit_result
+        user_email = None
+        try:  # the logged-in user's own email (read here, not inside the thread)
+            import streamlit as st
+            user_email = (st.session_state.get("current_user") or {}).get("email")
+        except Exception:
+            pass
+        notify_audit_result(result, framework, doc_name, user_email=user_email)
+    except Exception as exc:
+        logger.warning("Alert dispatch skipped: %s", exc)
+
+
 def run_audit(
     policy_text: str,
     framework: str,
@@ -39,6 +55,7 @@ def run_audit(
     provider: Optional[str] = None,
     enable_pii_scan: bool = True,
     enable_injection_check: bool = True,
+    doc_name: str = "Policy Document",
 ) -> Dict[str, Any]:
     """
     Run a full compliance audit on a policy document.
@@ -106,6 +123,7 @@ def run_audit(
                 "Audit blocked for security. Please review the document and resubmit."
             )
             result["duration_sec"] = round(time.time() - start_time, 2)
+            _send_alerts(result, framework, doc_name)
             return result
 
         if injections:
@@ -165,6 +183,7 @@ def run_audit(
         "run_audit complete | framework=%s | findings=%d | score=%.1f | time=%.2fs",
         framework, len(findings), score, result["duration_sec"]
     )
+    _send_alerts(result, framework, doc_name)
     return result
 
 

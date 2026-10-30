@@ -432,13 +432,54 @@ def _render_audit_log() -> None:
 
     st.markdown('<div class="section-header">🔔 Alert Configuration</div>',
                 unsafe_allow_html=True)
+    from alerts.email_alerts import (
+        load_alert_settings, save_alert_settings, smtp_configured,
+        send_test_email, send_digest,
+    )
+    _cfg = load_alert_settings()
+
+    if smtp_configured():
+        st.caption("📡 SMTP is configured — emails will be sent.")
+    else:
+        st.warning(
+            "SMTP is not configured, so no emails can be sent yet. Add SMTP_HOST, "
+            "SMTP_PORT, SMTP_USER and SMTP_PASSWORD to your Streamlit secrets "
+            "(Gmail: use an App Password)."
+        )
+
+    notify_user = st.checkbox(
+        "Send alerts to the user who ran the audit (their account email)",
+        value=_cfg.get("notify_user", True), key="alert_notify_user",
+    )
     c1, c2 = st.columns(2)
     with c1:
-        st.checkbox("Email alerts on Critical findings",    value=True)
-        st.checkbox("Slack notifications for new audits",   value=False)
+        on_critical = st.checkbox("Email alerts on Critical findings",
+                                  value=_cfg["email_on_critical"], key="alert_on_critical")
     with c2:
-        st.checkbox("Alert on injection detection",         value=True)
-        st.checkbox("Weekly compliance digest",             value=False)
-    st.text_input("Alert Email", placeholder="compliance@yourcompany.com")
-    if st.button("💾 Save Alert Settings", type="primary"):
-        st.success("✅ Alert settings saved.")
+        on_injection = st.checkbox("Email alerts on injection detection",
+                                   value=_cfg["email_on_injection"], key="alert_on_injection")
+    alert_email = st.text_input("Also copy these addresses (optional — admins / compliance team)", value=_cfg["alert_email"],
+                                placeholder="compliance@yourcompany.com, security@yourcompany.com",
+                                key="alert_email_input")
+
+    b1, b2, b3 = st.columns(3)
+    with b1:
+        if st.button("💾 Save Alert Settings", type="primary"):
+            ok, msg = save_alert_settings({
+                "email_on_critical": on_critical,
+                "email_on_injection": on_injection,
+                "notify_user": notify_user,
+                "alert_email": alert_email,
+            })
+            (st.success if ok else st.error)(("✅ " if ok else "❌ ") + msg)
+    with b2:
+        if st.button("📨 Send test email"):
+            with st.spinner("Sending…"):
+                _me = (st.session_state.get("current_user") or {}).get("email", "")
+                ok, err = send_test_email(_me or alert_email)
+            st.success("✅ Test email sent.") if ok else st.error(f"❌ {err}")
+    with b3:
+        if st.button("📊 Send digest now"):
+            with st.spinner("Sending…"):
+                ok, err = send_digest(st.session_state.get("audit_history", []), alert_email)
+            st.success("✅ Digest sent.") if ok else st.error(f"❌ {err}")
