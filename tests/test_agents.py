@@ -24,22 +24,23 @@ def test_perfect_score():
 
 def test_critical_penalty():
     score = calculate_compliance_score([_make_finding("Critical")])
-    assert score == 85.0
+    assert score == 80.0
 
 
 def test_multiple_findings():
     findings = [_make_finding("Critical"), _make_finding("High"), _make_finding("Medium")]
     score    = calculate_compliance_score(findings)
     assert 0.0 <= score <= 100.0
-    assert score < 85.0
+    assert score < 80.0
 
 
 def test_grade_mapping():
+    assert grade_score(97) == "A+"
     assert grade_score(92) == "A"
-    assert grade_score(82) == "B"
-    assert grade_score(72) == "C"
-    assert grade_score(62) == "D"
-    assert grade_score(55) == "F"
+    assert grade_score(82) == "B+"
+    assert grade_score(72) == "B-"
+    assert grade_score(62) == "C"
+    assert grade_score(10) == "F"
 
 
 def test_score_color_green():

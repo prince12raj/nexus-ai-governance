@@ -91,7 +91,7 @@ def test_score_critical_finding():
     assert score < 90.0
 
 def test_grade_a():
-    assert grade_score(95) == "A"
+    assert grade_score(95) == "A+"
 
 def test_grade_f():
-    assert grade_score(50) == "F"
+    assert grade_score(10) == "F"

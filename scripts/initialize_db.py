@@ -13,9 +13,9 @@ def main():
         Path(d).mkdir(parents=True, exist_ok=True)
         print(f"✅ {d}/")
 
-    from database.memory_store import MockVectorStore
-    vs = MockVectorStore()
-    print(f"✅ MockVectorStore — {vs.count()} docs, frameworks: {vs.frameworks()}")
+    from database.memory_store import MemoryVectorStore
+    vs = MemoryVectorStore()
+    print(f"✅ MemoryVectorStore — {vs.count()} docs, frameworks: {vs.frameworks()}")
     print("\n✅ Database initialised. Run: streamlit run app.py")
 
 

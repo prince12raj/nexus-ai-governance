@@ -24,12 +24,14 @@ logger = get_logger("nexus.llm.huggingface_provider")
 # ── Default models ────────────────────────────────────────────────────────────
 
 # Inference API — hosted on HuggingFace Hub
-DEFAULT_TEXT_MODEL      = "mistralai/Mistral-7B-Instruct-v0.2"
+DEFAULT_TEXT_MODEL      = "meta-llama/Llama-3.1-8B-Instruct"
 DEFAULT_EMBEDDING_MODEL = "sentence-transformers/all-MiniLM-L6-v2"
 DEFAULT_CLASSIFY_MODEL  = "facebook/bart-large-mnli"
 
-# Inference API base URL
-HF_API_BASE = "https://api-inference.huggingface.co/models"
+# Inference Providers router (the old api-inference.huggingface.co endpoint
+# was shut down and now returns 404/410).
+HF_ROUTER_BASE  = "https://router.huggingface.co/v1"                # chat (OpenAI-compatible)
+HF_API_BASE     = "https://router.huggingface.co/hf-inference/models"  # embeddings / classification
 
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -76,38 +78,13 @@ def generate(
     Returns:
         Generated text string.
     """
-    import httpx  # type: ignore
-
-    key = _get_api_key(api_key)
-    url = f"{HF_API_BASE}/{model}"
-
-    payload = {
-        "inputs": prompt,
-        "parameters": {
-            "max_new_tokens":     max_new_tokens,
-            "temperature":        temperature,
-            "repetition_penalty": repetition_penalty,
-            "return_full_text":   False,
-        },
-    }
-
-    logger.info("HF generate | model=%s | prompt_len=%d", model, len(prompt))
-
-    try:
-        resp = httpx.post(url, headers=_headers(key), json=payload, timeout=60.0)
-        resp.raise_for_status()
-        data = resp.json()
-
-        # API returns a list of dicts: [{"generated_text": "..."}]
-        if isinstance(data, list) and data:
-            return data[0].get("generated_text", "").strip()
-        if isinstance(data, dict):
-            return data.get("generated_text", str(data)).strip()
-        return str(data)
-
-    except Exception as exc:
-        logger.error("HF generate failed: %s", exc)
-        raise RuntimeError(f"HuggingFace generate failed: {exc}") from exc
+    return chat(
+        [{"role": "user", "content": prompt}],
+        model=model,
+        max_new_tokens=max_new_tokens,
+        temperature=temperature,
+        api_key=api_key,
+    )
 
 
 # ── Inference API: Chat (instruction-tuned models) ────────────────────────────
@@ -135,14 +112,31 @@ def chat(
     Returns:
         Assistant reply as a string.
     """
-    prompt = _messages_to_prompt(messages)
-    return generate(
-        prompt=prompt,
-        model=model,
-        max_new_tokens=max_new_tokens,
-        temperature=temperature,
-        api_key=api_key,
-    )
+    import httpx  # type: ignore
+
+    key = _get_api_key(api_key)
+    payload = {
+        "model":       model,
+        "messages":    [{"role": m.get("role", "user"), "content": m.get("content", "")} for m in messages],
+        "max_tokens":  max_new_tokens,
+        "temperature": temperature,
+    }
+
+    logger.info("HF chat | model=%s | messages=%d", model, len(messages))
+
+    try:
+        resp = httpx.post(
+            f"{HF_ROUTER_BASE}/chat/completions",
+            headers=_headers(key),
+            json=payload,
+            timeout=90.0,
+        )
+        resp.raise_for_status()
+        data = resp.json()
+        return (data["choices"][0]["message"]["content"] or "").strip()
+    except Exception as exc:
+        logger.error("HF chat failed: %s", exc)
+        raise RuntimeError(f"HuggingFace chat failed: {exc}") from exc
 
 
 def _messages_to_prompt(messages: List[Dict[str, str]]) -> str:
@@ -193,7 +187,7 @@ def embed(
     import httpx  # type: ignore
 
     key = _get_api_key(api_key)
-    url = f"{HF_API_BASE}/{model}"
+    url = f"{HF_API_BASE}/{model}/pipeline/feature-extraction"
 
     logger.info("HF embed | model=%s | texts=%d", model, len(texts))
 
@@ -262,7 +256,7 @@ def classify(
     import httpx  # type: ignore
 
     key = _get_api_key(api_key)
-    url = f"{HF_API_BASE}/{model}"
+    url = f"{HF_API_BASE}/{model}/pipeline/zero-shot-classification"
 
     payload = {
         "inputs": text,

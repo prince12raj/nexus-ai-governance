@@ -1,7 +1,7 @@
 """
 tests/test_rag.py — RAG / vector store tests.
 """
-from database.memory_store import MockVectorStore
+from database.memory_store import MemoryVectorStore
 from rag.chunking import chunk_text, chunk_by_paragraphs
 from rag.regulations_seed import REGULATIONS_CORPUS, get_by_framework
 
@@ -17,24 +17,24 @@ def test_get_by_framework():
 
 
 def test_vector_store_init():
-    vs = MockVectorStore()
+    vs = MemoryVectorStore()
     assert vs.count() > 0
 
 
 def test_similarity_search_returns_results():
-    vs      = MockVectorStore()
+    vs      = MemoryVectorStore()
     results = vs.similarity_search("data retention GDPR", k=3)
     assert len(results) > 0
 
 
 def test_similarity_search_framework_filter():
-    vs      = MockVectorStore()
+    vs      = MemoryVectorStore()
     results = vs.similarity_search("encryption", k=5, framework_filter="HIPAA")
     assert all(r["framework"] == "HIPAA" for r in results)
 
 
 def test_add_document():
-    vs = MockVectorStore()
+    vs = MemoryVectorStore()
     before = vs.count()
     vs.add_document({"id": "test-1", "title": "Test", "framework": "GDPR",
                       "citation": "Test", "severity": "Low",

@@ -68,7 +68,7 @@ class Settings:
     # ── 2. HuggingFace ────────────────────────────────────────────────────────
     HUGGINGFACE_API_KEY:    str = _get("HUGGINGFACE_API_KEY", "")
     HUGGINGFACE_MODEL:      str = _get(
-        "HUGGINGFACE_MODEL", "mistralai/Mistral-7B-Instruct-v0.2"
+        "HUGGINGFACE_MODEL", "meta-llama/Llama-3.1-8B-Instruct"
     )
     HUGGINGFACE_EMBED_MODEL: str = _get(
         "HUGGINGFACE_EMBED_MODEL", "sentence-transformers/all-MiniLM-L6-v2"
