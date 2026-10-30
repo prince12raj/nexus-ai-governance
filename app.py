@@ -23,7 +23,31 @@ Boot sequence:
 
 import streamlit as st
 
-from config import (
+
+@st.cache_resource(show_spinner=False)
+def _preload_modules() -> bool:
+    """
+    Import the project's packages exactly once, serialised.
+
+    Streamlit runs each browser session's script on its own thread. When two
+    sessions hit a fresh deploy/reboot at the same moment, their first imports
+    of `config` / `ui` race each other and Python can raise
+    `_DeadlockError` / `KeyError: 'config.constants'` / `KeyError: 'ui.sidebar'`.
+    st.cache_resource runs this body under a lock, so only one thread does the
+    first import and the others wait, then reuse the loaded modules.
+    """
+    import importlib
+    for name in (
+        "config.settings", "config.logging_config", "config.constants", "config",
+        "ui.styles", "ui.sidebar", "ui",
+    ):
+        importlib.import_module(name)
+    return True
+
+
+_preload_modules()
+
+from config import (  # noqa: E402  (must come after the serialised preload)
     APP_NAME, APP_VERSION, APP_ICON,
     validate_config, get_logger,
 )
