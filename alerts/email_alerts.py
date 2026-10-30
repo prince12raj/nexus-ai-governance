@@ -285,5 +285,5 @@ def notify_audit_result(
             _run()
         return recipients
     except Exception as exc:  # never break an audit because of an alert
-        logger.error("notify_audit_result failed: %s", exc)
+        logger.error("notify_audit_result is failed: %s", exc)
         return []
