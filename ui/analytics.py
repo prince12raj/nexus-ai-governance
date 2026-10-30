@@ -31,7 +31,7 @@ def render_analytics() -> None:
         user.get("role", "") if user else "",
     )
 
-    reports      = st.session_state.get("audit_history", [])
+    reports      = _normalize_reports(st.session_state.get("audit_history", []))
     all_findings = [f for r in reports for f in getattr(r, "findings", [])]
 
     total_audits   = len(reports)
@@ -360,6 +360,52 @@ def _render_radar(reports: list) -> None:
 # EXPORT PANEL
 # ══════════════════════════════════════════════════════════════════════════════
 
+
+def _normalize_reports(rows: list) -> list:
+    """
+    audit_history holds AuditReport objects (this session) and plain dicts
+    (rows loaded from the database after login). Convert dict rows to
+    attribute-style objects so the rest of this page can use getattr().
+    """
+    from types import SimpleNamespace
+
+    out = []
+    for r in rows or []:
+        if not isinstance(r, dict):
+            out.append(r)
+            continue
+        d = dict(r)
+        findings = d.get("findings") or d.get("findings_json") or []
+        if isinstance(findings, str):
+            import json
+            try:
+                findings = json.loads(findings)
+            except Exception:
+                findings = []
+        d["findings"] = [SimpleNamespace(**f) if isinstance(f, dict) else f for f in findings]
+        d.setdefault("framework_targeted", d.get("framework", "") or "")
+        d["generated_timestamp"] = str(d.get("generated_timestamp") or d.get("created_at") or "")
+        d["compliance_score"] = d.get("compliance_score") or 0
+        out.append(SimpleNamespace(**d))
+    return out
+
+
+def _to_plain(obj):
+    """Recursively convert pydantic models / namespaces / dicts to plain dicts."""
+    from types import SimpleNamespace
+    if isinstance(obj, dict):
+        return {k: _to_plain(v) for k, v in obj.items()}
+    if isinstance(obj, (list, tuple)):
+        return [_to_plain(v) for v in obj]
+    if isinstance(obj, SimpleNamespace):
+        return _to_plain(vars(obj))
+    if hasattr(obj, "model_dump"):
+        return obj.model_dump()
+    if hasattr(obj, "dict"):
+        return obj.dict()
+    return obj
+
+
 def _render_export_panel(reports: list, findings: list) -> None:
     st.markdown('<div class="section-header">📥 Export Analytics Data</div>', unsafe_allow_html=True)
 
@@ -370,10 +416,7 @@ def _render_export_panel(reports: list, findings: list) -> None:
         if st.button("Export Audit History", width='stretch'):
             import json
             try:
-                data = [
-                    r.model_dump() if hasattr(r, "model_dump") else r.dict()
-                    for r in reports
-                ]
+                data = [_to_plain(r) for r in reports]
                 st.download_button(
                     "💾 Download audit_history.json",
                     data=json.dumps(data, indent=2, default=str),
@@ -395,7 +438,7 @@ def _render_export_panel(reports: list, findings: list) -> None:
                         "severity":         getattr(f, "severity", ""),
                         "department":       getattr(f, "department", ""),
                         "confidence_score": getattr(f, "confidence_score", ""),
-                        "explanation":      getattr(f, "explanation", "")[:100],
+                        "explanation":      (getattr(f, "explanation", "") or "")[:100],
                     })
                 if rows:
                     csv = pd.DataFrame(rows).to_csv(index=False)
@@ -449,8 +492,8 @@ def _build_summary_markdown(reports: list, findings: list) -> str:
     for r in reports:
         lines.append(
             f"- **{getattr(r, 'framework_targeted', '')}** — "
-            f"Score: {getattr(r, 'compliance_score', 0):.0f}% — "
-            f"{getattr(r, 'generated_timestamp', '')[:10]}"
+            f"Score: {(getattr(r, 'compliance_score', 0) or 0):.0f}% — "
+            f"{str(getattr(r, 'generated_timestamp', '') or '')[:10]}"
         )
 
     return "\n".join(lines)
