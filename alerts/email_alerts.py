@@ -108,12 +108,14 @@ def _send(to: Iterable[str], subject: str, text: str, html_body: str) -> Tuple[b
     if not smtp_configured():
         return False, "SMTP is not configured (set SMTP_HOST, SMTP_USER, SMTP_PASSWORD)."
 
-    msg = EmailMessage()
-    msg["Subject"] = subject.replace("\r", " ").replace("\n", " ")[:200]
-    msg["From"]    = settings.SMTP_FROM or settings.SMTP_USER
-    msg["To"]      = ", ".join(recipients)
-    msg.set_content(text)
-    msg.add_alternative(html_body, subtype="html")
+    def _build(rcpt: str) -> EmailMessage:
+        m = EmailMessage()
+        m["Subject"] = subject.replace("\r", " ").replace("\n", " ")[:200]
+        m["From"]    = settings.SMTP_FROM or settings.SMTP_USER
+        m["To"]      = rcpt
+        m.set_content(text)
+        m.add_alternative(html_body, subtype="html")
+        return m
 
     try:
         port = int(settings.SMTP_PORT)
@@ -121,12 +123,14 @@ def _send(to: Iterable[str], subject: str, text: str, html_body: str) -> Tuple[b
         if port == 465:
             with smtplib.SMTP_SSL(settings.SMTP_HOST, port, context=ctx, timeout=15) as s:
                 s.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                s.send_message(msg)
+                for r in recipients:
+                    s.send_message(_build(r))
         else:
             with smtplib.SMTP(settings.SMTP_HOST, port, timeout=15) as s:
                 s.starttls(context=ctx)
                 s.login(settings.SMTP_USER, settings.SMTP_PASSWORD)
-                s.send_message(msg)
+                for r in recipients:
+                    s.send_message(_build(r))
         logger.info("Alert email sent | to=%s | subject=%s", recipients, subject)
         return True, ""
     except Exception as exc:
@@ -204,7 +208,7 @@ def notify_audit_result(
     doc_name: str = "Policy Document",
     background: bool = True,
     user_email: Optional[str] = None,
-) -> None:
+) -> List[str]:
     """
     Called after every audit. Sends an email if the alert preferences match
     (Critical findings, or injection blocked). Recipients: the user who ran
@@ -217,8 +221,12 @@ def notify_audit_result(
             recipients += parse_recipients(user_email)
         recipients += parse_recipients(cfg.get("alert_email", ""))
         recipients = list(dict.fromkeys(r.lower() for r in recipients))  # de-duplicate
+        logger.info(
+            "Alert recipients resolved | user_email_found=%s | notify_user=%s | total=%d",
+            bool(parse_recipients(user_email or "")), cfg.get("notify_user", True), len(recipients),
+        )
         if not recipients or not smtp_configured():
-            return
+            return []
 
         findings  = result.get("findings", []) or []
         criticals = [f for f in findings if str(_val(f, "severity", "")).lower() == "critical"]
@@ -237,6 +245,10 @@ def notify_audit_result(
                 f"Prompt injection detected. Document: {doc_name}. Framework: {framework}.",
                 _wrap_html("Injection detected", body),
             ))
+
+        if criticals and result.get("provider_used") == "mock":
+            logger.info("Skipping critical-findings alert: findings are mock placeholders.")
+            criticals = []
 
         if criticals and cfg.get("email_on_critical"):
             items_h = "".join(
@@ -266,10 +278,12 @@ def notify_audit_result(
                 _send(recipients, subject, text, html_body)
 
         if not jobs:
-            return
+            return []
         if background:
             threading.Thread(target=_run, daemon=True).start()
         else:
             _run()
+        return recipients
     except Exception as exc:  # never break an audit because of an alert
         logger.error("notify_audit_result failed: %s", exc)
+        return []

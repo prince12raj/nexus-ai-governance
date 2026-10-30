@@ -188,6 +188,19 @@ def _render_audit_results(findings, score, framework, result):
     level = risk_level(score)
 
     st.markdown("---")
+    _sent = (result or {}).get("alerts_sent_to") or []
+    if _sent:
+        def _mask(e):
+            n, _, d = e.partition("@")
+            return f"{n[:2]}***@{d}"
+        st.info("📧 Alert email sent to: " + ", ".join(_mask(e) for e in _sent), icon="📧")
+    if (result or {}).get("provider_used") == "mock":
+        st.warning(
+            "⚠️ No AI provider was available (API credits exhausted or no key set), so these "
+            "are **sample placeholder findings**, not a real analysis of your document. "
+            "No alert email was sent for them.",
+            icon="⚠️",
+        )
     st.markdown(f"""
     <div class="score-banner">
       <div class="score-number" style="color:{color};">{score:.0f}</div>

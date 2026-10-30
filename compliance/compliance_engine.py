@@ -33,17 +33,30 @@ logger = get_logger("nexus.compliance.engine")
 # ══════════════════════════════════════════════════════════════════════════════
 
 
+def _current_user_email() -> Optional[str]:
+    """Email of the logged-in user (session first, then the user store)."""
+    try:
+        import streamlit as st
+        user = st.session_state.get("current_user") or {}
+        if user.get("email"):
+            return user["email"]
+        uname = st.session_state.get("username")
+        if uname:
+            from auth.user_store import get_user
+            return (get_user(uname) or {}).get("email")
+    except Exception:
+        pass
+    return None
+
+
 def _send_alerts(result: Dict[str, Any], framework: str, doc_name: str) -> None:
     """Fire email alerts (Critical findings / injection). Never raises."""
     try:
         from alerts.email_alerts import notify_audit_result
-        user_email = None
-        try:  # the logged-in user's own email (read here, not inside the thread)
-            import streamlit as st
-            user_email = (st.session_state.get("current_user") or {}).get("email")
-        except Exception:
-            pass
-        notify_audit_result(result, framework, doc_name, user_email=user_email)
+        notified = notify_audit_result(
+            result, framework, doc_name, user_email=_current_user_email()
+        )
+        result["alerts_sent_to"] = notified or []
     except Exception as exc:
         logger.warning("Alert dispatch skipped: %s", exc)
 
@@ -213,7 +226,8 @@ def _call_llm(
             relevant_regs=relevant_regs,
             provider=provider,
         )
-        active = provider or _detect_provider()
+        from llm.router import get_last_provider
+        active = get_last_provider() or provider or _detect_provider()
         return raw, active
     except Exception as exc:
         logger.warning("Router failed: %s — trying direct provider call.", exc)

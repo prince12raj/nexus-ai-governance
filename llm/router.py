@@ -47,6 +47,7 @@ Usage:
 
 import json
 import re
+import threading
 import time
 from typing import Any, Dict, Generator, List, Optional
 
@@ -171,6 +172,16 @@ PROVIDER_ORDER = ["openai", "huggingface", "ollama", "mock"]
 # ══════════════════════════════════════════════════════════════════════════════
 # ACTIVE PROVIDER DETECTION
 # ══════════════════════════════════════════════════════════════════════════════
+
+# Which provider actually produced the last reply on this thread (the one that
+# was *configured* may have failed and fallen through to another / to mock).
+_last_route = threading.local()
+
+
+def get_last_provider() -> Optional[str]:
+    """Provider that actually answered the most recent route() call, or None."""
+    return getattr(_last_route, "provider", None)
+
 
 def _get_active_provider() -> str:
     """Detect best available provider at runtime."""
@@ -446,6 +457,7 @@ def _route_with_failover(
                 "router | task=%s | provider=%s | attempt=%d | success",
                 task, p, attempt + 1
             )
+            _last_route.provider = p
             return reply
 
         except RateLimitError as exc:
@@ -464,6 +476,7 @@ def _route_with_failover(
 
     # All providers failed — use mock
     logger.error("All providers failed for task=%s. Using mock fallback.", task)
+    _last_route.provider = "mock"
     if task == "compliance_audit":
         from compliance.compliance_engine import generate_mock_findings
         return generate_mock_findings(
