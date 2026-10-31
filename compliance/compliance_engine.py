@@ -265,6 +265,7 @@ def _call_llm(
 def _detect_provider() -> str:
     if settings.OPENAI_API_KEY:        return "openai"
     if settings.HUGGINGFACE_API_KEY:   return "huggingface"
+    if getattr(settings, "GROQ_API_KEY", ""):  return "groq"
     return "ollama"
 
 

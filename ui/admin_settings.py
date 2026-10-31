@@ -149,7 +149,7 @@ def _render_api_config() -> None:
             results = test_all_providers()
 
         st.markdown(f"**Active Provider:** `{results.get('active', 'unknown')}`")
-        for provider in ["openai", "huggingface", "ollama"]:
+        for provider in ["openai", "huggingface", "groq", "ollama"]:
             r      = results.get(provider, {})
             status = r.get("status", "error")
             icon   = "✅" if status == "ok" else "❌"

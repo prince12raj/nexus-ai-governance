@@ -65,6 +65,12 @@ class Settings:
     OPENAI_MODEL:   str = _get("OPENAI_MODEL", "gpt-4o")
     OPENAI_ORG_ID:  str = _get("OPENAI_ORG_ID", "")        # optional org ID
 
+    # ── 1b. Groq (free tier, OpenAI-compatible) ───────────────────────────────
+    GROQ_API_KEY:  str = _get("GROQ_API_KEY", "")
+    GROQ_MODEL:    str = _get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    GROQ_BASE_URL: str = _get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
+    GROQ_MAX_PROMPT_CHARS: int = int(_get("GROQ_MAX_PROMPT_CHARS", "24000"))  # ≈6k tokens
+
     # ── 2. HuggingFace ────────────────────────────────────────────────────────
     HUGGINGFACE_API_KEY:    str = _get("HUGGINGFACE_API_KEY", "")
     HUGGINGFACE_MODEL:      str = _get(
@@ -162,6 +168,8 @@ class Settings:
             return "openai"
         if self.HUGGINGFACE_API_KEY:
             return "huggingface"
+        if self.GROQ_API_KEY:
+            return "groq"
         return "ollama"
 
     @property
@@ -203,6 +211,8 @@ class Settings:
             "OPENAI_MODEL":              self.OPENAI_MODEL,
             "OPENAI_ORG_ID":             self.OPENAI_ORG_ID,
             # HuggingFace
+            "GROQ_API_KEY":              self.masked_key(self.GROQ_API_KEY),
+            "GROQ_MODEL":                self.GROQ_MODEL,
             "HUGGINGFACE_API_KEY":       self.HUGGINGFACE_API_KEY,
             "HUGGINGFACE_MODEL":         self.HUGGINGFACE_MODEL,
             "HUGGINGFACE_EMBED_MODEL":   self.HUGGINGFACE_EMBED_MODEL,
@@ -273,10 +283,10 @@ class Settings:
         """
         warnings: list[str] = []
 
-        if not self.OPENAI_API_KEY and not self.HUGGINGFACE_API_KEY:
+        if not (self.OPENAI_API_KEY or self.GROQ_API_KEY or self.HUGGINGFACE_API_KEY):
             warnings.append(
                 "⚠️ No LLM API key configured. "
-                "Set OPENAI_API_KEY or HUGGINGFACE_API_KEY in .env, "
+                "Set GROQ_API_KEY (free), OPENAI_API_KEY or HUGGINGFACE_API_KEY in .env, "
                 "or run Ollama locally."
             )
 

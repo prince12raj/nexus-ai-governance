@@ -60,6 +60,9 @@ def get_active_provider() -> str:
     if settings.HUGGINGFACE_API_KEY:
         return "huggingface"
 
+    if settings.GROQ_API_KEY:
+        return "groq"
+
     try:
         from llm import ollama_provider
         if ollama_provider.is_available():
@@ -393,6 +396,13 @@ def test_all_providers() -> Dict[str, Any]:
         results["openai"] = openai_provider.test_connection()
     except Exception as exc:
         results["openai"] = {"status": "error", "message": str(exc)}
+
+    # Groq (free)
+    try:
+        from llm import groq_provider
+        results["groq"] = groq_provider.test_connection()
+    except Exception as exc:
+        results["groq"] = {"status": "error", "message": str(exc)}
 
     # HuggingFace
     try:

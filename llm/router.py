@@ -166,7 +166,7 @@ TASK_CONFIG: Dict[str, Dict[str, Any]] = {
 }
 
 # Provider failover order
-PROVIDER_ORDER = ["openai", "huggingface", "ollama", "mock"]
+PROVIDER_ORDER = ["openai", "huggingface", "groq", "ollama", "mock"]
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -183,12 +183,34 @@ def get_last_provider() -> Optional[str]:
     return getattr(_last_route, "provider", None)
 
 
+# Providers that recently failed because of billing / quota (402, 429, "no credits") are
+# skipped for a while, so every audit doesn't wait on a call that is bound to fail again.
+_COOLDOWN_SECONDS = 600
+_cooldown_until: Dict[str, float] = {}
+_COOLDOWN_MARKERS = ("402", "429", "payment required", "no credits", "insufficient_quota",
+                     "quota", "billing", "rate limit")
+
+
+def _in_cooldown(provider: str) -> bool:
+    return time.time() < _cooldown_until.get(provider, 0)
+
+
+def _maybe_cooldown(provider: str, exc: Exception) -> None:
+    msg = str(exc).lower()
+    if provider != "mock" and any(m in msg for m in _COOLDOWN_MARKERS):
+        _cooldown_until[provider] = time.time() + _COOLDOWN_SECONDS
+        logger.warning("router | provider=%s paused for %ds (billing/quota/rate limit)",
+                       provider, _COOLDOWN_SECONDS)
+
+
 def _get_active_provider() -> str:
     """Detect best available provider at runtime."""
     if settings.OPENAI_API_KEY:
         return "openai"
     if settings.HUGGINGFACE_API_KEY:
         return "huggingface"
+    if settings.GROQ_API_KEY:
+        return "groq"
     try:
         from llm import ollama_provider
         if ollama_provider.is_available():
@@ -445,6 +467,9 @@ def _route_with_failover(
     last_error: Optional[Exception] = None
 
     for attempt, p in enumerate(providers_to_try):
+        if p != "mock" and _in_cooldown(p):
+            logger.info("router | skipping provider=%s (cooling down after billing/quota error)", p)
+            continue
         try:
             model = model_override or _get_model_for_task(task, p)
             reply = _call_provider(p, messages, cfg, model)
@@ -461,9 +486,9 @@ def _route_with_failover(
             return reply
 
         except RateLimitError as exc:
-            logger.warning("Rate limit on %s — waiting 5s before retry.", p)
-            time.sleep(5)
+            logger.warning("Rate limit on %s — trying next provider.", p)
             last_error = exc
+            _cooldown_until[p] = time.time() + 60
             continue
 
         except Exception as exc:
@@ -472,6 +497,7 @@ def _route_with_failover(
                 task, p, attempt + 1, exc
             )
             last_error = exc
+            _maybe_cooldown(p, exc)
             continue
 
     # All providers failed — use mock
@@ -543,6 +569,15 @@ def _call_provider(
             max_tokens=cfg["max_tokens"],
         )
 
+    if provider == "groq":
+        from llm import groq_provider
+        return groq_provider.chat(
+            messages=messages,
+            model=None,                      # GROQ_MODEL from settings
+            temperature=cfg["temperature"],
+            max_tokens=cfg["max_tokens"],
+        )
+
     if provider == "huggingface":
         from llm import huggingface_provider
         return huggingface_provider.chat(
@@ -567,7 +602,7 @@ def _call_provider(
     )
     return (
         f"[Mock] No LLM provider available. Query: '{last_user[:80]}'. "
-        "Set OPENAI_API_KEY or HUGGINGFACE_API_KEY in .env, "
+        "Set GROQ_API_KEY (free) or OPENAI_API_KEY in .env, "
         "or run 'ollama serve' locally."
     )
 

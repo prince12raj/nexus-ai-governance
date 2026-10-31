@@ -81,6 +81,8 @@ def _render_system_status() -> None:
         llm_status, llm_label = "online", "LLM: GPT-4o"
     elif settings.HUGGINGFACE_API_KEY:
         llm_status, llm_label = "online", "LLM: HuggingFace"
+    elif settings.GROQ_API_KEY:
+        llm_status, llm_label = "online", "LLM: Groq (free)"
     else:
         llm_status, llm_label = "warning", "LLM: Mock Mode"
 
