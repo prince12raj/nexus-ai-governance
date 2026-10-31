@@ -76,6 +76,11 @@ class RegulatoryResearchAgent:
             provider=self.provider,
         )
 
+        # No AI provider available (credits exhausted / no key): the router returns a
+        # "[Mock] ..." placeholder. Give the user the retrieved regulation text instead.
+        if isinstance(answer, str) and answer.lstrip().startswith("[Mock]"):
+            answer = self._answer_from_sources(question, sources)
+
         return {
             "answer":    answer,
             "sources":   self._format_sources(sources),
@@ -185,7 +190,29 @@ class RegulatoryResearchAgent:
     ) -> List[Dict[str, Any]]:
         """Retrieve relevant regulations from the vector store."""
         from rag.retrieval_tools import retrieve_for_question
-        return retrieve_for_question(query=query, framework=framework, k=k)
+        return retrieve_for_question(query, framework=framework, k=k)
+
+    def _answer_from_sources(self, question: str, docs: List[Dict[str, Any]]) -> str:
+        """Plain-text answer built straight from the retrieved regulations (no LLM)."""
+        if not docs:
+            return (
+                "I couldn't find a matching regulation in the knowledge base for that "
+                "question, and no AI provider is currently available to answer it. "
+                "Try naming a framework (GDPR, HIPAA, ISO 27001, PCI-DSS, SOC 2)."
+            )
+        parts = [
+            "_AI answering is currently unavailable, so here are the most relevant "
+            "regulation excerpts from the knowledge base:_\n"
+        ]
+        for d in docs[:3]:
+            text = " ".join(str(d.get("text", "")).split())
+            if len(text) > 600:
+                text = text[:600].rsplit(" ", 1)[0] + "…"
+            parts.append(
+                f"**{d.get('title', 'Regulation')}**  \n"
+                f"_{d.get('citation', '')}_ · Severity: {d.get('severity', 'n/a')}\n\n{text}\n"
+            )
+        return "\n".join(parts)
 
     def _format_sources(self, docs: List[Dict[str, Any]]) -> List[Dict[str, str]]:
         """Format retrieved docs as clean source citations."""
