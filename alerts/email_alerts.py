@@ -41,6 +41,7 @@ DEFAULTS: Dict[str, Any] = {
     "email_on_critical":  True,
     "email_on_injection": True,
     "notify_user":        True,   # send to the user who ran the audit
+    "email_on_complete":  True,   # "audit complete" summary to that user after every audit
     "alert_email":        "",     # optional extra copy (admins / compliance team)
 }
 
@@ -71,6 +72,7 @@ def save_alert_settings(cfg: Dict[str, Any]) -> Tuple[bool, str]:
         "email_on_critical":  bool(cfg.get("email_on_critical")),
         "email_on_injection": bool(cfg.get("email_on_injection")),
         "notify_user":        bool(cfg.get("notify_user", True)),
+        "email_on_complete":  bool(cfg.get("email_on_complete", True)),
         "alert_email":        ", ".join(emails),
     }
     try:
@@ -210,80 +212,134 @@ def notify_audit_result(
     user_email: Optional[str] = None,
 ) -> List[str]:
     """
-    Called after every audit. Sends an email if the alert preferences match
-    (Critical findings, or injection blocked). Recipients: the user who ran
-    the audit (user_email) plus any extra admin addresses. Never raises.
+    Called after every audit. Emails:
+      * the user who ran it — an "audit complete" summary (setting: email_on_complete),
+        which also lists real Critical findings;
+      * admins in alert_email — Critical findings and injection attempts only;
+      * the user AND admins — if a document was blocked for prompt injection.
+    Returns the list of addresses emailed. Never raises.
     """
     try:
-        cfg = load_alert_settings()
-        recipients: List[str] = []
-        if cfg.get("notify_user", True) and user_email:
-            recipients += parse_recipients(user_email)
-        recipients += parse_recipients(cfg.get("alert_email", ""))
-        recipients = list(dict.fromkeys(r.lower() for r in recipients))  # de-duplicate
+        cfg   = load_alert_settings()
+        user_list  = parse_recipients(user_email or "") if cfg.get("notify_user", True) else []
+        admin_list = parse_recipients(cfg.get("alert_email", ""))
+        user_list  = list(dict.fromkeys(r.lower() for r in user_list))
+        admin_list = [r.lower() for r in dict.fromkeys(admin_list) if r.lower() not in user_list]
         logger.info(
-            "Alert recipients resolved | user_email_found=%s | notify_user=%s | total=%d",
-            bool(parse_recipients(user_email or "")), cfg.get("notify_user", True), len(recipients),
+            "Alert recipients resolved | user_email_found=%s | notify_user=%s | users=%d | admins=%d",
+            bool(parse_recipients(user_email or "")), cfg.get("notify_user", True),
+            len(user_list), len(admin_list),
         )
-        if not recipients or not smtp_configured():
+        if not (user_list or admin_list) or not smtp_configured():
             return []
 
         findings  = result.get("findings", []) or []
+        placeholder = result.get("provider_used") == "mock"
         criticals = [f for f in findings if str(_val(f, "severity", "")).lower() == "critical"]
+        real_criticals = [] if placeholder else criticals
         injected  = bool(result.get("error")) and "injection" in str(result.get("error")).lower()
+        score     = float(result.get("score", 0) or 0)
+        grade     = result.get("grade", "")
+        counts: Dict[str, int] = {}
+        for f in findings:
+            sev = str(_val(f, "severity", "Unknown")).title()
+            counts[sev] = counts.get(sev, 0) + 1
 
-        jobs = []
+        def _crit_lists(items):
+            li = "".join(
+                f"<li><b>{html.escape(str(_val(f, 'legal_reference', '')))}</b> — "
+                f"{html.escape(str(_val(f, 'explanation', '') or '')[:200])}</li>"
+                for f in items[:10]
+            )
+            tx = "\n".join(
+                f"- {_val(f, 'legal_reference', '')}: {str(_val(f, 'explanation', '') or '')[:200]}"
+                for f in items[:10]
+            )
+            return li, tx
+
+        jobs = []   # (recipients, subject, text, html)
+
+        # ── Injection blocked (user + admins) ────────────────────────────────
         if injected and cfg.get("email_on_injection"):
             body = (
-                f"<p>A document was <b>blocked</b> because it contains patterns that look like "
+                "<p>A document was <b>blocked</b> because it contains patterns that look like "
                 f"prompt injection.</p><p>Document: <b>{html.escape(doc_name)}</b><br>"
                 f"Framework: {html.escape(framework)}<br>"
                 f"Injection risk score: {float(result.get('injection_risk', 0)):.2f}</p>"
             )
             jobs.append((
+                user_list + admin_list,
                 f"[Nexus] Prompt injection detected in {doc_name}",
                 f"Prompt injection detected. Document: {doc_name}. Framework: {framework}.",
                 _wrap_html("Injection detected", body),
             ))
 
-        if criticals and result.get("provider_used") == "mock":
-            logger.info("Skipping critical-findings alert: findings are mock placeholders.")
-            criticals = []
-
-        if criticals and cfg.get("email_on_critical"):
-            items_h = "".join(
-                f"<li><b>{html.escape(str(_val(f, 'legal_reference', '')))}</b> — "
-                f"{html.escape(str(_val(f, 'explanation', ''))[:200])}</li>"
-                for f in criticals[:10]
-            )
-            items_t = "\n".join(
-                f"- {_val(f, 'legal_reference', '')}: {str(_val(f, 'explanation', ''))[:200]}"
-                for f in criticals[:10]
-            )
-            score = float(result.get("score", 0) or 0)
+        # ── Audit complete summary (the user who ran the audit) ──────────────
+        completion_sent_to_user = False
+        if not injected and user_list and cfg.get("email_on_complete", True):
+            sev_line = ", ".join(f"{n} {k}" for k, n in counts.items()) or "no findings"
+            note_h = note_t = ""
+            if placeholder:
+                note_h = ("<p style='background:#fff4e5;padding:10px;border-radius:6px'>⚠️ No AI "
+                          "provider was available, so these are <b>sample placeholder findings</b>, "
+                          "not a real analysis of your document.</p>")
+                note_t = ("NOTE: No AI provider was available - these are sample placeholder "
+                          "findings, not a real analysis.\n")
+            crit_h = crit_t = ""
+            if real_criticals:
+                li, tx = _crit_lists(real_criticals)
+                crit_h = f"<p><b>{len(real_criticals)} critical finding(s):</b></p><ul>{li}</ul>"
+                crit_t = f"\nCritical findings:\n{tx}\n"
             body = (
-                f"<p><b>{len(criticals)} critical finding(s)</b> in <b>{html.escape(doc_name)}</b> "
-                f"({html.escape(framework)}). Compliance score: <b>{score:.0f}%</b>.</p>"
-                f"<ul>{items_h}</ul>"
+                f"<p>Your <b>{html.escape(framework)}</b> audit of <b>{html.escape(doc_name)}</b> "
+                f"has finished.</p><p>Compliance score: <b>{score:.0f}%</b> {html.escape(str(grade))}"
+                f"<br>Findings: {html.escape(sev_line)}</p>{note_h}{crit_h}"
             )
+            prefix = f"⚠️ {len(real_criticals)} critical · " if real_criticals else ""
             jobs.append((
-                f"[Nexus] {len(criticals)} critical finding(s): {framework} audit of {doc_name}",
-                f"{len(criticals)} critical finding(s) in {doc_name} ({framework}), "
-                f"score {score:.0f}%.\n{items_t}",
-                _wrap_html("Critical findings", body),
+                user_list,
+                f"[Nexus] {prefix}{framework} audit complete: {doc_name} ({score:.0f}%)",
+                f"Your {framework} audit of {doc_name} has finished.\n"
+                f"Compliance score: {score:.0f}% {grade}\nFindings: {sev_line}\n{note_t}{crit_t}",
+                _wrap_html("Audit complete", body),
             ))
+            completion_sent_to_user = True
 
-        def _run():
-            for subject, text, html_body in jobs:
-                _send(recipients, subject, text, html_body)
+        # ── Critical findings alert ──────────────────────────────────────────
+        if real_criticals and cfg.get("email_on_critical"):
+            crit_to = list(admin_list)
+            if not completion_sent_to_user:
+                crit_to = user_list + crit_to        # user not already covered by summary
+            if crit_to:
+                li, tx = _crit_lists(real_criticals)
+                body = (
+                    f"<p><b>{len(real_criticals)} critical finding(s)</b> in "
+                    f"<b>{html.escape(doc_name)}</b> ({html.escape(framework)}). "
+                    f"Compliance score: <b>{score:.0f}%</b>.</p><ul>{li}</ul>"
+                )
+                jobs.append((
+                    crit_to,
+                    f"[Nexus] {len(real_criticals)} critical finding(s): {framework} audit of {doc_name}",
+                    f"{len(real_criticals)} critical finding(s) in {doc_name} ({framework}), "
+                    f"score {score:.0f}%.\n{tx}",
+                    _wrap_html("Critical findings", body),
+                ))
+        elif criticals and placeholder:
+            logger.info("Skipping critical-findings alert: findings are mock placeholders.")
 
+        jobs = [j for j in jobs if j[0]]
         if not jobs:
             return []
+
+        def _run():
+            for rcpts, subject, text, html_body in jobs:
+                _send(rcpts, subject, text, html_body)
+
         if background:
             threading.Thread(target=_run, daemon=True).start()
         else:
             _run()
-        return recipients
+        return list(dict.fromkeys(r for j in jobs for r in j[0]))
     except Exception as exc:  # never break an audit because of an alert
-        logger.error("notify_audit_result is failed: %s", exc)
+        logger.error("notify_audit_result failed: %s", exc)
         return []

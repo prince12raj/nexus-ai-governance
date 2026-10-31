@@ -430,6 +430,13 @@ def _render_audit_log() -> None:
     else:
         st.info("No events match your filter.")
 
+    st.markdown('<div class="section-header">🗄️ Database</div>', unsafe_allow_html=True)
+    if st.button("🔌 Test database connection"):
+        from database.database_manager import db_diagnose
+        for table, status in db_diagnose().items():
+            (st.success if status.startswith("ok") else st.error)(f"**{table}** — {status}")
+    st.markdown("---")
+
     st.markdown('<div class="section-header">🔔 Alert Configuration</div>',
                 unsafe_allow_html=True)
     from alerts.email_alerts import (
@@ -451,6 +458,10 @@ def _render_audit_log() -> None:
         "Send alerts to the user who ran the audit (their account email)",
         value=_cfg.get("notify_user", True), key="alert_notify_user",
     )
+    on_complete = st.checkbox(
+        "Email the user an \"audit complete\" summary after every audit",
+        value=_cfg.get("email_on_complete", True), key="alert_on_complete",
+    )
     c1, c2 = st.columns(2)
     with c1:
         on_critical = st.checkbox("Email alerts on Critical findings",
@@ -469,6 +480,7 @@ def _render_audit_log() -> None:
                 "email_on_critical": on_critical,
                 "email_on_injection": on_injection,
                 "notify_user": notify_user,
+                "email_on_complete": on_complete,
                 "alert_email": alert_email,
             })
             (st.success if ok else st.error)(("✅ " if ok else "❌ ") + msg)

@@ -212,6 +212,12 @@ def _render_platform_stats() -> None:
                 unsafe_allow_html=True)
 
     stats = _load_global_stats()
+    if stats.get("_error"):
+        st.warning(
+            "⚠️ Some platform statistics could not be loaded from the database, so they may "
+            "show 0. Admins: Admin Settings → Database → Test database connection shows why.",
+            icon="⚠️",
+        )
 
     total_audits   = stats.get("total_audits", 0)
     total_users    = stats.get("total_users", 0)
@@ -247,11 +253,24 @@ def _load_global_stats() -> dict:
     try:
         from database.database_manager import db_get_global_stats, is_configured
         if is_configured():
-            return db_get_global_stats()
-    except Exception:
-        pass
+            stats = db_get_global_stats()
+            if stats.get("_error"):
+                # Show the reason instead of silently showing zeros, and fall back to
+                # this user's own history for anything the database could not return.
+                st.session_state["_stats_error"] = stats["_error"]
+                if not stats.get("total_audits"):
+                    stats = {**_local_stats(), "_error": stats["_error"]}
+            else:
+                st.session_state.pop("_stats_error", None)
+            return stats
+    except Exception as exc:
+        st.session_state["_stats_error"] = str(exc)
 
-    # Local fallback
+    return _local_stats()
+
+
+def _local_stats() -> dict:
+    """Stats built from this session's audit history (used when the DB is unavailable)."""
     reports = st.session_state.get("audit_history", [])
     fw_counts: dict = {}
     date_counts: dict = {}

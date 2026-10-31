@@ -316,62 +316,90 @@ def db_get_global_stats() -> Dict[str, Any]:
     """
     client = _get_client()
     if not client:
-        return _empty_global_stats()
+        stats = _empty_global_stats()
+        stats["_error"] = "Database client unavailable (check SUPABASE_URL / SUPABASE_KEY)."
+        return stats
 
+    stats = _empty_global_stats()
+    errors: List[str] = []
+
+    # Each section is fetched independently, so one failing table / permission
+    # no longer zeroes the whole dashboard.
+
+    # ── Audit aggregates ───────────────────────────────────────────────────────
     try:
-        # ── Total users ────────────────────────────────────────────────────────
-        users_result = client.table("users").select(
-            "username", count="exact"
-        ).execute()
-        total_users = users_result.count or len(users_result.data or [])
+        audit_rows = _fetch_all(client, "audit_reports", "framework, compliance_score, created_at")
+        stats["total_audits"] = len(audit_rows)
 
-        # ── Audit aggregates ───────────────────────────────────────────────────
-        audits_result = client.table("audit_reports").select(
-            "framework, compliance_score, created_at"
-        ).execute()
-        audit_rows = audits_result.data or []
-        total_audits = len(audit_rows)
+        scores = [r.get("compliance_score") for r in audit_rows if r.get("compliance_score") is not None]
+        avg_score = round(sum(float(x) for x in scores) / len(scores), 1) if scores else 0.0
+        stats["avg_compliance_score"] = avg_score
+        stats["platform_avg_score"]   = avg_score
 
-        # Average compliance score across all audits
-        scores = [r.get("compliance_score", 0) for r in audit_rows if r.get("compliance_score") is not None]
-        avg_score = round(sum(scores) / len(scores), 1) if scores else 0.0
-
-        # Audits per framework
-        audits_by_framework: Dict[str, int] = {}
-        for row in audit_rows:
-            fw = row.get("framework") or "Unknown"
-            audits_by_framework[fw] = audits_by_framework.get(fw, 0) + 1
-
-        # Audits over time — group by date (YYYY-MM-DD)
+        by_fw: Dict[str, int] = {}
         date_counts: Dict[str, int] = {}
         for row in audit_rows:
-            created = (row.get("created_at") or "")[:10]
+            fw = row.get("framework") or "Unknown"
+            by_fw[fw] = by_fw.get(fw, 0) + 1
+            created = str(row.get("created_at") or "")[:10]
             if created:
                 date_counts[created] = date_counts.get(created, 0) + 1
-        audits_over_time = [
-            {"date": d, "count": c}
-            for d, c in sorted(date_counts.items())
+        stats["audits_by_framework"] = by_fw
+        stats["audits_over_time"] = [
+            {"date": d, "count": c} for d, c in sorted(date_counts.items())
         ]
-
-        # ── Total documents ────────────────────────────────────────────────────
-        docs_result = client.table("uploaded_documents").select(
-            "doc_id", count="exact"
-        ).execute()
-        total_documents = docs_result.count or len(docs_result.data or [])
-
-        return {
-            "total_audits":          total_audits,
-            "total_users":           total_users,
-            "total_documents":       total_documents,
-            "avg_compliance_score":  avg_score,
-            "platform_avg_score":    avg_score,
-            "audits_by_framework":   audits_by_framework,
-            "audits_over_time":      audits_over_time,
-        }
-
     except Exception as exc:
-        logger.error("db_get_global_stats failed: %s", exc)
-        return _empty_global_stats()
+        logger.error("global stats: audit_reports query failed: %s", exc)
+        errors.append(f"audit_reports: {exc}")
+
+    # ── Total users ────────────────────────────────────────────────────────────
+    try:
+        stats["total_users"] = len(_fetch_all(client, "users", "username"))
+    except Exception as exc:
+        logger.error("global stats: users query failed: %s", exc)
+        errors.append(f"users: {exc}")
+
+    # ── Total documents ────────────────────────────────────────────────────────
+    try:
+        stats["total_documents"] = len(_fetch_all(client, "uploaded_documents", "doc_id"))
+    except Exception as exc:
+        logger.error("global stats: uploaded_documents query failed: %s", exc)
+        errors.append(f"uploaded_documents: {exc}")
+
+    if errors:
+        stats["_error"] = " | ".join(errors)
+    return stats
+
+
+def _fetch_all(client, table: str, columns: str, page_size: int = 1000) -> List[Dict[str, Any]]:
+    """Fetch every row of a table (Supabase returns at most 1000 rows per request)."""
+    rows: List[Dict[str, Any]] = []
+    start = 0
+    while True:
+        res = client.table(table).select(columns).range(start, start + page_size - 1).execute()
+        batch = res.data or []
+        rows.extend(batch)
+        if len(batch) < page_size:
+            return rows
+        start += page_size
+
+
+def db_diagnose() -> Dict[str, str]:
+    """Per-table connectivity check for the Admin Settings page. 'ok (N rows)' or the error."""
+    if not is_configured():
+        return {"configuration": "SUPABASE_URL / SUPABASE_KEY not set"}
+    client = _get_client()
+    if not client:
+        return {"connection": "could not create Supabase client"}
+    out: Dict[str, str] = {}
+    for table, col in (("users", "username"), ("audit_reports", "report_id"),
+                       ("uploaded_documents", "doc_id")):
+        try:
+            res = client.table(table).select(col, count="exact").limit(1).execute()
+            out[table] = f"ok ({res.count if res.count is not None else len(res.data or [])} rows)"
+        except Exception as exc:
+            out[table] = f"FAILED: {exc}"
+    return out
 
 
 def _empty_global_stats() -> Dict[str, Any]:
