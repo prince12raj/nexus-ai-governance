@@ -67,7 +67,7 @@ class Settings:
 
     # ── 1b. Groq (free tier, OpenAI-compatible) ───────────────────────────────
     GROQ_API_KEY:  str = _get("GROQ_API_KEY", "")
-    GROQ_MODEL:    str = _get("GROQ_MODEL", "llama-3.3-70b-versatile")
+    GROQ_MODEL:    str = _get("GROQ_MODEL", "openai/gpt-oss-120b")
     GROQ_BASE_URL: str = _get("GROQ_BASE_URL", "https://api.groq.com/openai/v1")
     GROQ_MAX_PROMPT_CHARS: int = int(_get("GROQ_MAX_PROMPT_CHARS", "24000"))  # ≈6k tokens
 
