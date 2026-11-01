@@ -70,6 +70,15 @@ def _render_form() -> None:
         st.session_state["_reg_success"] = ""
         return
 
+    # Step 2 of 2: email verification code
+    from auth import otp
+    pending = otp.get_pending()
+    if pending and pending.get("purpose") == "register":
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        otp.render_otp_step(_create_account, heading="Verify your email")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
     st.markdown('<div class="login-container">', unsafe_allow_html=True)
 
     with st.form("register_form", clear_on_submit=False):
@@ -282,21 +291,57 @@ def _handle_registration(
 
     # ── Register ──────────────────────────────────────────────────────────────
     from auth.security import hash_password
+    from auth import otp
+    from auth.user_store import email_exists, user_exists
+
+    uname = username.strip().lower()
+    mail  = email.strip().lower()
+
+    # Fail early (before emailing a code) if the account can't be created anyway.
+    if user_exists(uname):
+        st.error("❌ That username is already taken.")
+        return
+    if email_exists(mail):
+        st.error("❌ An account with that email already exists.")
+        return
+
+    payload = {
+        "username":      uname,
+        "password_hash": hash_password(password),
+        "full_name":     full_name.strip(),
+        "email":         mail,
+        "role":          role,
+        "department":    department.strip(),
+    }
+
+    if otp.otp_enabled():
+        with st.spinner("Sending your verification code…"):
+            ok, err = otp.start_otp("register", mail, payload)
+        if ok:
+            st.rerun()
+        else:
+            st.error(f"❌ {err}")
+        return
+
+    _create_account(payload)
+
+
+def _create_account(payload: dict) -> None:
+    """Create the account (called directly, or after the email code was verified)."""
     from auth.user_store import register_user
 
-    hashed   = hash_password(password)
     success, message = register_user(
-        username=username.strip().lower(),
-        password_hash=hashed,
-        full_name=full_name.strip(),
-        email=email.strip().lower(),
-        role=role,
-        department=department.strip(),
+        username=payload["username"],
+        password_hash=payload["password_hash"],
+        full_name=payload["full_name"],
+        email=payload["email"],
+        role=payload["role"],
+        department=payload["department"],
     )
 
     if success:
         st.session_state["_reg_success"] = (
-            f"✅ {message} Your username is: **{username.strip().lower()}**"
+            f"✅ {message} Your email is verified. Your username is: **{payload['username']}**"
         )
         # Auto-switch to login page after short delay
         st.session_state["auth_page"] = "login"

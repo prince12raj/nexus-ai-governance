@@ -93,6 +93,13 @@ class Settings:
     SMTP_FROM:     str = _get("SMTP_FROM", "")             # defaults to SMTP_USER
     ALERT_EMAIL:   str = _get("ALERT_EMAIL", "")           # default recipient(s)
 
+    # ── 3c. Email OTP (login + sign-up verification) ──────────────────────────
+    # Needs SMTP above. If SMTP is not configured, OTP is skipped automatically
+    # (so nobody is locked out). Set REQUIRE_EMAIL_OTP=false to switch it off.
+    REQUIRE_EMAIL_OTP:   bool = _get("REQUIRE_EMAIL_OTP", "true").lower() == "true"
+    OTP_EXPIRY_MINUTES:  int  = int(_get("OTP_EXPIRY_MINUTES", "10"))
+    OTP_MAX_ATTEMPTS:    int  = int(_get("OTP_MAX_ATTEMPTS", "5"))
+
     # ── 4. Application ────────────────────────────────────────────────────────
     APP_ENV:        str = _get("APP_ENV", "development")   # development | staging | production
     APP_NAME:       str = _get("APP_NAME", "Nexus AI Governance Platform")

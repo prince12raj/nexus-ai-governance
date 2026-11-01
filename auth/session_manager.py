@@ -32,23 +32,15 @@ logger = get_logger("nexus.security.session")
 # CORE AUTH FUNCTIONS
 # ══════════════════════════════════════════════════════════════════════════════
 
-def login(username: str, password: str) -> bool:
+def verify_credentials(username: str, password: str) -> Optional[Dict[str, Any]]:
     """
-    Authenticate a user and initialise their session.
+    Check a username/password pair WITHOUT starting a session.
 
-    Args:
-        username: The submitted username.
-        password: The submitted plain-text password.
-
-    Returns:
-        True if credentials are valid, False otherwise.
+    Returns the user record if the credentials are valid, otherwise None.
+    (Used by the login page so it can ask for an email OTP before logging in.)
     """
-    # ── FIX: use get_user() instead of load_all_users() ──────────────────────
-    # load_all_users() calls db_get_all_users() which deliberately omits
-    # password_hash from the SELECT query → hash is always None → login fails.
-    # get_user() calls db_get_user() which explicitly selects password_hash.
-    # ─────────────────────────────────────────────────────────────────────────
-    from auth.user_store import get_user, update_last_login
+    # get_user() (not load_all_users()) because it selects password_hash.
+    from auth.user_store import get_user
     from auth.security import verify_password
 
     uname = username.strip().lower()
@@ -56,23 +48,30 @@ def login(username: str, password: str) -> bool:
 
     if not user:
         logger.warning("Login failed — unknown user: %s", username)
-        return False
+        return None
 
     # Block demo-only accounts
     if not user.get("registered_at"):
         logger.warning("Login blocked — demo account: %s", username)
-        return False
+        return None
 
     # Guard against missing password_hash
     if not user.get("password_hash"):
         logger.error("Login failed — no password_hash for user: %s", username)
-        return False
+        return None
 
     if not verify_password(password, user["password_hash"]):
         logger.warning("Login failed — wrong password: user=%s", uname)
-        return False
+        return None
 
-    # Initialise session
+    return user
+
+
+def start_session(username: str, user: Dict[str, Any]) -> None:
+    """Initialise the authenticated session for a user whose login is fully verified."""
+    from auth.user_store import update_last_login
+
+    uname = username.strip().lower()
     now = time.time()
     st.session_state.update({
         "authenticated":    True,
@@ -116,6 +115,19 @@ def login(username: str, password: str) -> bool:
         "Login success | user=%s | role=%s | ip=client",
         uname, user.get("role", "unknown"),
     )
+
+
+def login(username: str, password: str) -> bool:
+    """
+    Authenticate a user and initialise their session (password only, no OTP).
+
+    The login page uses verify_credentials() + an email OTP + start_session()
+    instead; this function is kept for callers that don't need the OTP step.
+    """
+    user = verify_credentials(username, password)
+    if not user:
+        return False
+    start_session(username, user)
     return True
 
 

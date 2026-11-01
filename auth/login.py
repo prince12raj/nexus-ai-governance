@@ -7,7 +7,7 @@ import time
 
 import streamlit as st
 
-from auth.session_manager import login
+from auth.session_manager import start_session, verify_credentials
 from config.logging_config import get_logger
 
 logger = get_logger("nexus.security.login")
@@ -68,6 +68,15 @@ def _render_form() -> None:
         st.rerun()
         return
 
+    # Step 2 of 2: password was correct, now ask for the emailed code
+    from auth import otp
+    pending = otp.get_pending()
+    if pending and pending.get("purpose") == "login":
+        st.markdown('<div class="login-container">', unsafe_allow_html=True)
+        otp.render_otp_step(_finish_login, heading="Check your email")
+        st.markdown("</div>", unsafe_allow_html=True)
+        return
+
     st.markdown('<div class="login-container">', unsafe_allow_html=True)
 
     with st.form("login_form", clear_on_submit=False):
@@ -115,21 +124,28 @@ def _render_form() -> None:
 
 
 def _handle_login(username: str, password: str) -> None:
-    """Validate credentials and handle login outcome."""
+    """Validate credentials; then either start the session or ask for an email OTP."""
     if not username or not password:
         st.error("Please enter both username and password.")
         return
 
     with st.spinner("Authenticating…"):
-        success = login(username, password)
+        user = verify_credentials(username, password)
 
-    if success:
-        st.session_state["login_attempts"] = 0
-        st.session_state["lockout_until"]  = 0
-        st.success("✅ Authenticated — loading platform…")
-        logger.info("Successful login: user=%s", username)
-        time.sleep(0.5)
-        st.rerun()
+    if user:
+        from auth import otp
+        if otp.otp_enabled():
+            email = (user.get("email") or "").strip()
+            with st.spinner("Sending your login code…"):
+                ok, err = otp.start_otp("login", email, {"username": username.strip().lower()})
+            if ok:
+                st.session_state["login_attempts"] = 0
+                st.rerun()
+            else:
+                st.error(f"❌ {err}")
+                logger.error("Login OTP could not be sent: user=%s | %s", username, err)
+            return
+        _complete_login(username, user)
     else:
         attempts = st.session_state.get("login_attempts", 0) + 1
         st.session_state["login_attempts"] = attempts
@@ -147,6 +163,27 @@ def _handle_login(username: str, password: str) -> None:
                 f"❌ Invalid username or password. "
                 f"{remaining} attempt(s) remaining."
             )
+
+
+def _finish_login(payload: dict) -> None:
+    """Called after the emailed code was entered correctly."""
+    from auth.user_store import get_user
+    uname = payload["username"]
+    user  = get_user(uname)
+    if not user:
+        st.error("❌ Account not found. Please sign in again.")
+        return
+    _complete_login(uname, user)
+
+
+def _complete_login(username: str, user: dict) -> None:
+    start_session(username, user)
+    st.session_state["login_attempts"] = 0
+    st.session_state["lockout_until"]  = 0
+    st.success("✅ Authenticated — loading platform…")
+    logger.info("Successful login: user=%s", username)
+    time.sleep(0.5)
+    st.rerun()
 
 
 # ── Lockout helpers ────────────────────────────────────────────────────────────
